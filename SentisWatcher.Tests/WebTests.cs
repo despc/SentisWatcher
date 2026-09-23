@@ -20,6 +20,8 @@ namespace SentisWatcher.Tests
         private const long Player = 144115188075855928;     // more than a JS number holds exactly
         private const long Grid = 105745445387715906;
         private const long Cargo = 139215407649218072;
+        private const long Vault = 139215407649218999;
+        private const long Base = 105745445387715999;       // the vault's grid
 
         private static long At(int minute) => Clock.ToMs(new DateTime(2026, 9, 23, 10, minute, 0, DateTimeKind.Utc));
 
@@ -38,6 +40,11 @@ namespace SentisWatcher.Tests
             writer.Add(new Row(Table.Alerts, At(4), At(4), "dupe_transfer", Player, Cargo, "made iron"));
             writer.Add(new Row(Table.Planets, At(0), 7L, "EarthLike-1", "EarthLike", 0.0, 0.0, 60000.0, 60000.0, 57000.0, 63000.0, 70000.0, 120000.0, At(0)));
             writer.Add(new Row(Table.Meta, At(0), "sun", "0.5,0.5,0.7071"));
+            // the ledger: a vault a plugin filled with platinum, then given to another player
+            writer.Add(new Row(Table.Inventories, At(1), At(1), Vault, 0, Base, Player, "Ingot/Platinum:10", 0.1, 15.6));
+            writer.Add(new Row(Table.Inventories, At(6), At(6), Vault, 0, Base, Player, "Ingot/Platinum:510", 0.1, 15.6, "plugin:Evil|Ingot/Platinum:+500"));
+            writer.Add(new Row(Table.Inventories, At(7), At(7), Vault, 0, Base, 777L, "Ingot/Platinum:510", 0.1, 15.6));
+            writer.Add(new Row(Table.Alerts, At(6), At(6), "external_source", Player, Vault, "plugin:Evil gave Tester: Ingot/Platinum +500"));
             // two hits close together and one far away: where most happened
             writer.Add(new Row(Table.Events, At(5), At(5), "damage", 0L, 0L, 5100.0, 5100.0, 5100.0, 10.0, 1, "Bullet"));
             writer.Add(new Row(Table.Events, At(5), At(5) + 1000, "damage", 0L, 0L, 5300.0, 5300.0, 5300.0, 10.0, 1, "Bullet"));
@@ -82,6 +89,19 @@ namespace SentisWatcher.Tests
 
             var grid = Call("track", ("kind", "grid"), ("id", Grid), ("from", At(0)), ("to", At(59)));
             Assert.Equal(30.0, (double)grid["points"][0][13]);
+        }
+
+        [Fact]
+        public void A_track_starts_with_where_the_object_was_before_the_range()
+        {
+            // the last position is at minute 9: a range after it still has it
+            var track = Call("track", ("kind", "player"), ("id", Player), ("from", At(20)), ("to", At(30)));
+            var points = (JArray)track["points"];
+            Assert.Single(points);
+            Assert.Equal(At(9), (long)points[0][0]);
+            // and a range before the first one gets the first after it
+            var early = Call("track", ("kind", "grid"), ("id", Grid), ("from", At(0)), ("to", At(0) + 30_000));
+            Assert.Equal(At(1), (long)early["points"][0][0]);
         }
 
         [Fact]
@@ -169,6 +189,17 @@ namespace SentisWatcher.Tests
         }
 
         [Fact]
+        public void A_moment_counts_the_events_of_the_range_it_is_given()
+        {
+            // the transfer is at minute 2: a moment at minute 9 sees it only with the range
+            var near = Call("moment", ("t", At(9)), ("window", 60_000));
+            Assert.Equal(0, (long)near["players"].Single()["events"]);
+            var ranged = Call("moment", ("t", At(9)), ("window", 60_000), ("from", At(0)), ("to", At(10)));
+            Assert.Equal(1, (long)ranged["players"].Single()["events"]);
+            Assert.Equal(At(0), (long)ranged["eventsFrom"]);
+        }
+
+        [Fact]
         public void A_moment_has_everyone_at_their_nearest_position_and_their_activity()
         {
             var moment = Call("moment", ("t", At(2) + 20_000), ("window", 120_000));
@@ -223,6 +254,52 @@ namespace SentisWatcher.Tests
             Assert.Equal(5200.0, (double)hot["x"], 3);
             Assert.Equal(At(5) + 500, (long)hot["t"]);
             Assert.False((bool)Call("hotspot", ("from", At(30)), ("to", At(59)))["found"]);
+        }
+
+        [Fact]
+        public void The_ledger_of_a_player_tells_where_each_change_came_from()
+        {
+            var ledger = Call("ledger", ("kind", "player"), ("id", Player), ("from", At(5)), ("to", At(59)));
+            Assert.Equal("Tester", (string)ledger["name"]);
+            Assert.Equal(10.0, (double)ledger["start"]["Ingot/Platinum"]);
+            Assert.Null(ledger["end"]["Ingot/Platinum"]);
+            Assert.Equal(500.0, (double)ledger["sources"]["Ingot/Platinum"]["plugin:Evil"]);
+            Assert.Equal(-510.0, (double)ledger["sources"]["Ingot/Platinum"]["ownership"]);
+            Assert.Empty(ledger["unexplained"]);
+            Assert.Equal("external_source", (string)ledger["alerts"].Single(a => (string)a["kind"] == "external_source")["kind"]);
+            Assert.Equal(510.0, ((JArray)ledger["series"]["Ingot/Platinum"]).Max(v => (double)v));
+
+            // the grid keeps the vault after it changed hands
+            var grid = Call("ledger", ("kind", "grid"), ("id", Base), ("from", At(5)), ("to", At(59)));
+            Assert.Equal(510.0, (double)grid["end"]["Ingot/Platinum"]);
+            Assert.Null(grid["sources"]["Ingot/Platinum"]["ownership"]);
+
+            var anomalies = Call("anomalies", ("from", At(0)), ("to", At(59)));
+            Assert.Equal(2, ((JArray)anomalies["alerts"]).Count);
+            Assert.Equal("Tester", (string)anomalies["names"][Player.ToString()]);
+        }
+
+        [Fact]
+        public void Holdings_are_what_each_inventory_held_at_the_moment()
+        {
+            var grid = Call("holdings", ("kind", "grid"), ("id", Base), ("t", At(6) + 1000));
+            var vault = grid["inventories"].Single();
+            Assert.Equal(Vault.ToString(), (string)vault["entity"]);
+            Assert.Equal(510.0, (double)vault["items"]["Ingot/Platinum"]);
+            Assert.Equal(10.0, (double)vault["prev"]["Ingot/Platinum"]);
+            Assert.Equal("plugin:Evil", (string)vault["flows"][0][0]);
+            // given away at minute 7: the player holds it no more, the grid still does
+            Assert.Single(Call("holdings", ("kind", "player"), ("id", Player), ("t", At(6)))["inventories"].Where(i => (string)i["entity"] == Vault.ToString()));
+            Assert.Empty(Call("holdings", ("kind", "player"), ("id", Player), ("t", At(8)))["inventories"].Where(i => (string)i["entity"] == Vault.ToString()));
+            Assert.Single(Call("holdings", ("kind", "grid"), ("id", Base), ("t", At(8)))["inventories"]);
+        }
+
+        [Fact]
+        public void The_inventories_page_is_embedded()
+        {
+            var resources = typeof(WebServer).Assembly.GetManifestResourceNames().Select(n => n.Replace('\\', '/')).ToList();
+            Assert.Contains("Web/ledger.html", resources);
+            Assert.Contains("Web/ledger.js", resources);
         }
 
         [Fact]

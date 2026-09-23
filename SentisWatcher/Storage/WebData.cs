@@ -11,13 +11,19 @@ namespace SentisWatcher.Storage
     /// What the web view asks for, read from the day files. Ids go out as strings: entity ids are larger
     /// than a JavaScript number holds exactly.
     /// </summary>
-    public sealed class WebData
+    public sealed partial class WebData
     {
         /// <summary>Points of a track above this are thinned out evenly (the last one always stays).</summary>
         public const int MaxTrackPoints = 5000;
         public const int MaxEvents = 5000;
 
         private readonly WatcherStore _store;
+
+        /// <summary>
+        /// Who an id is when the day files do not say (a player never online that day, a grid never written):
+        /// asked of the running game; null when it does not know either. Unset in tests.
+        /// </summary>
+        public Func<long, string> LiveName;
 
         public WebData(WatcherStore store)
         {
@@ -79,6 +85,14 @@ namespace SentisWatcher.Storage
                 using (var r = cmd.ExecuteReader())
                     while (r.Read())
                         names[Id(r, 0)] = r.IsDBNull(1) ? "" : r.GetString(1);
+            if (LiveName != null)
+                foreach (var id in wanted)
+                {
+                    var key = id.ToString(CultureInfo.InvariantCulture);
+                    if (names.ContainsKey(key)) continue;
+                    var name = LiveName(id);
+                    if (!string.IsNullOrEmpty(name)) names[key] = name;
+                }
             return names;
         }
 
@@ -89,12 +103,11 @@ namespace SentisWatcher.Storage
         public object Track(string kind, long id, long from, long to)
         {
             var points = new List<object[]>();
-            var sql = kind == "grid"
-                ? "SELECT t, x, y, z, fx, fy, fz, ux, uy, uz, blocks, owner, static, radius FROM grid_pos WHERE grid=@id AND t BETWEEN @a AND @b ORDER BY t"
-                : "SELECT t, x, y, z, health, grid FROM player_pos WHERE identity=@id AND t BETWEEN @a AND @b ORDER BY t";
-            foreach (var db in Days(from, to))
-                using (db)
-                using (var cmd = Command(db, sql, ("@id", id), ("@a", from), ("@b", to)))
+            var columns = kind == "grid"
+                ? "SELECT t, x, y, z, fx, fy, fz, ux, uy, uz, blocks, owner, static, radius FROM grid_pos WHERE grid=@id AND "
+                : "SELECT t, x, y, z, health, grid FROM player_pos WHERE identity=@id AND ";
+            void Read(SQLiteCommand cmd, List<object[]> into)
+            {
                 using (var r = cmd.ExecuteReader())
                     while (r.Read())
                     {
@@ -105,8 +118,33 @@ namespace SentisWatcher.Storage
                             var name = r.GetName(c);
                             row[c] = name == "grid" || name == "owner" ? (object)Id(r, c) : Num(r, c);
                         }
-                        points.Add(row);
+                        into.Add(row);
                     }
+            }
+            foreach (var db in Days(from, to))
+                using (db)
+                using (var cmd = Command(db, columns + "t BETWEEN @a AND @b ORDER BY t", ("@id", id), ("@a", from), ("@b", to)))
+                    Read(cmd, points);
+            // positions are written on change: a grid standing still has its last one before the range (up to
+            // ten minutes, or a day before); without it the object would have no place at the range's start
+            if (points.Count == 0 || (long)points[0][0] > from)
+            {
+                var before = new List<object[]>();
+                foreach (var db in Days(from - 86_400_000L, from))
+                    using (db)
+                    using (var cmd = Command(db, columns + "t < @a ORDER BY t DESC LIMIT 1", ("@id", id), ("@a", from)))
+                        Read(cmd, before);
+                if (before.Count > 0) points.Insert(0, before.OrderBy(p => (long)p[0]).Last());
+            }
+            if (points.Count == 0)
+            {
+                // nothing before either: where it first showed up after the range
+                foreach (var db in Days(to, to + 86_400_000L))
+                    using (db)
+                    using (var cmd = Command(db, columns + "t > @b ORDER BY t LIMIT 1", ("@id", id), ("@b", to)))
+                        Read(cmd, points);
+                if (points.Count > 1) points.RemoveRange(1, points.Count - 1);
+            }
             return new Dictionary<string, object>
             {
                 ["id"] = id.ToString(CultureInfo.InvariantCulture),
@@ -378,9 +416,13 @@ namespace SentisWatcher.Storage
         /// time; a standing grid is written every 10 minutes, so a grid is looked for <see cref="GridWindowMs"/>
         /// around it), and how many events each had within <paramref name="window"/> of it. Most active first.
         /// </summary>
-        public object Moment(long at, long window, int max = 2000)
+        public object Moment(long at, long window, int max = 2000, long? eventsFrom = null, long? eventsTo = null)
         {
             window = Math.Max(10_000, Math.Min(3_600_000, window));
+            // the events and jumps: of the given range (the one chosen on the timeline), else of the window
+            var ea = eventsFrom ?? at - window;
+            var eb = eventsTo ?? at + window;
+            if (eb < ea) (ea, eb) = (eb, ea);
             var players = new Dictionary<long, (long T, double X, double Y, double Z, long Grid)>();
             var grids = new Dictionary<long, (long T, double X, double Y, double Z, long Blocks, long Owner, double Radius, bool Static)>();
             var events = new Dictionary<long, long>();
@@ -414,24 +456,26 @@ namespace SentisWatcher.Storage
                                 grids[id] = (t, r.GetDouble(2), r.GetDouble(3), r.GetDouble(4), r.IsDBNull(5) ? 0 : r.GetInt64(5),
                                     r.IsDBNull(6) ? 0 : r.GetInt64(6), r.IsDBNull(7) ? 0 : r.GetDouble(7), !r.IsDBNull(8) && r.GetInt64(8) == 1);
                         }
-                    using (var cmd = Command(db,
-                               "SELECT e.actor, e.entity, n.kind, n.owner, COUNT(*) FROM events e LEFT JOIN names n ON n.id = e.entity " +
-                               "WHERE e.t BETWEEN @a AND @b GROUP BY e.actor, e.entity", ("@a", at - window), ("@b", at + window)))
-                    using (var r = cmd.ExecuteReader())
-                        while (r.Read())
-                        {
-                            var count = r.GetInt64(4);
-                            if (!r.IsDBNull(0)) AddEvents(r.GetInt64(0), count);
-                            if (r.IsDBNull(1)) continue;
-                            var kind = r.IsDBNull(2) ? null : r.GetString(2);
-                            AddEvents(kind == "block" && !r.IsDBNull(3) ? r.GetInt64(3) : r.GetInt64(1), count);
-                        }
                 }
+            foreach (var db in Days(ea, eb))
+                using (db)
+                using (var cmd = Command(db,
+                           "SELECT e.actor, e.entity, n.kind, n.owner, COUNT(*) FROM events e LEFT JOIN names n ON n.id = e.entity " +
+                           "WHERE e.t BETWEEN @a AND @b GROUP BY e.actor, e.entity", ("@a", ea), ("@b", eb)))
+                using (var r = cmd.ExecuteReader())
+                    while (r.Read())
+                    {
+                        var count = r.GetInt64(4);
+                        if (!r.IsDBNull(0)) AddEvents(r.GetInt64(0), count);
+                        if (r.IsDBNull(1)) continue;
+                        var kind = r.IsDBNull(2) ? null : r.GetString(2);
+                        AddEvents(kind == "block" && !r.IsDBNull(3) ? r.GetInt64(3) : r.GetInt64(1), count);
+                    }
             var jumps = new List<Dictionary<string, object>>();
-            foreach (var db in Days(at - window, at + window))
+            foreach (var db in Days(ea, eb))
                 using (db)
                 using (var cmd = Command(db, "SELECT t, actor, entity, x, y, z, amount, detail FROM events WHERE kind='jump' AND t BETWEEN @a AND @b ORDER BY t LIMIT 500",
-                           ("@a", at - window), ("@b", at + window)))
+                           ("@a", ea), ("@b", eb)))
                 using (var r = cmd.ExecuteReader())
                     while (r.Read())
                         jumps.Add(new Dictionary<string, object>
@@ -448,6 +492,8 @@ namespace SentisWatcher.Storage
             {
                 ["at"] = at,
                 ["window"] = window,
+                ["eventsFrom"] = ea,
+                ["eventsTo"] = eb,
                 ["players"] = players.OrderByDescending(p => Events(p.Key)).Select(p => new Dictionary<string, object>
                 {
                     ["id"] = Key(p.Key), ["name"] = Name(p.Key), ["t"] = p.Value.T, ["x"] = p.Value.X, ["y"] = p.Value.Y, ["z"] = p.Value.Z,

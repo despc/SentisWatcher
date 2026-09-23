@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using NLog;
 using SentisWatcher.Config;
 using SentisWatcher.GUI;
+using SentisWatcher.Ledger;
 using SentisWatcher.Recording;
 using SentisWatcher.Storage;
 using SentisWatcher.Web;
@@ -79,6 +80,8 @@ namespace SentisWatcher
             Sweep = new InventorySweep(recorder);
             _hooks = new EventHooks();
             Recorder.Current = recorder;
+            if (LedgerPatches.Booking) InventoryLedger.Current = new InventoryLedger();
+            else Log.Warn("SentisWatcher: the inventory ledger is off, its hooks are missing");
             _hooks.Attach();
             recorder.Event("server_start", 0, 0, detail: "SentisWatcher recording");
             if (Config.WebEnabled)
@@ -104,7 +107,17 @@ namespace SentisWatcher
             _hooks?.Detach();
             Web?.Dispose();
             Web = null;
+            try
+            {
+                Sweep?.FlushPending();
+            }
+            catch (Exception e)
+            {
+                Log.Error(e, "SentisWatcher: the last inventory flows could not be written");
+            }
             recorder.FlushAggregates(force: true);
+            InventoryLedger.Current?.FlushSuspects(recorder);
+            InventoryLedger.Current = null;
             recorder.Event("server_stop", 0, 0);
             Recorder.Current = null;
             Store?.Dispose();
@@ -122,9 +135,11 @@ namespace SentisWatcher
             var started = Cost.Start();
             try
             {
+                LedgerPatches.ResetThread();
                 Sampler?.Tick();
                 Sweep?.Tick();
                 recorder.FlushAggregates();
+                InventoryLedger.Current?.FlushSuspects(recorder);
             }
             catch (Exception e)
             {
@@ -144,7 +159,8 @@ namespace SentisWatcher
         public string Describe() =>
             Store == null ? "not recording" :
                 $"written {Store.Written} rows, queued {Store.Queued}, dropped {Store.Dropped}; " +
-                $"last inventory pass {Sweep?.LastPassInventories} inventories, {Sweep?.LastPassWritten} written";
+                $"last inventory pass {Sweep?.LastPassInventories} inventories, {Sweep?.LastPassWritten} written; " +
+                (InventoryLedger.Current != null ? $"ledger: {InventoryLedger.Current.PendingCount} inventories changed since their visit" : "ledger off");
 
         public override void Dispose()
         {

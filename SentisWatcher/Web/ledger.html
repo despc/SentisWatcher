@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>SentisWatcher — инвентари</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="ledger.css">
+</head>
+<body class="ledger">
+  <header>
+    <div class="brand">SentisWatcher</div>
+    <nav class="pages"><a href="index.html" id="toMap" title="3D-карта с треками и событиями">Карта</a><a class="here">Инвентари</a></nav>
+    <div class="search">
+      <input id="search" type="search" placeholder="Игрок или грид: имя, id…" autocomplete="off">
+      <button id="searchOpen" class="open" title="Все игроки и гриды интервала">▾</button>
+      <div id="results" class="dropdown" hidden></div>
+    </div>
+    <label>с <input id="from" type="datetime-local" step="1"></label>
+    <label>по <input id="to" type="datetime-local" step="1"></label>
+    <span id="zone" class="utc" title="Время сервера">время сервера</span>
+    <button id="rangeBack" title="Вернуться к прошлому интервалу" hidden>↩</button>
+    <button id="reload" title="Загрузить за этот интервал">Загрузить</button>
+    <button id="lastHour">Час</button>
+    <button id="lastDay">Сутки</button>
+    <button id="lastWeek">Неделя</button>
+    <div id="status" class="status"></div>
+  </header>
+
+  <main>
+    <section class="board">
+      <div class="strip-wrap">
+        <div class="strip-title">Аномалии за интервал <span id="stripCount" class="dim"></span></div>
+        <canvas id="strip" title="Клик — момент (у аномалии — показать её); протяжка — выделить интервал; колесо — приблизить; зажатое колесо — сдвинуть"></canvas>
+      </div>
+      <div id="subject" class="subject">
+        <p class="hint">Выберите игрока или грид в поиске сверху — или аномалию в списке справа. Покажем, сколько
+          чего было в его инвентарях по времени, откуда бралось и куда уходило.</p>
+      </div>
+      <div id="chartWrap" class="chart-wrap" hidden>
+        <div class="chart-tools">
+          <label class="check inline"><input id="logScale" type="checkbox"> логарифмическая шкала</label>
+          <button id="itemsTop" title="Предметы с самым большим изменением">Главные</button>
+          <button id="itemsNone">Снять все</button>
+          <input id="itemFilter" type="search" placeholder="Предмет: Platinum, SteelPlate…">
+        </div>
+        <div class="chart-box">
+          <canvas id="chart" title="Клик — момент; протяжка — выделить интервал; колесо — приблизить; зажатое колесо — сдвинуть; бегунок момента можно тащить"></canvas>
+          <div id="rangeBar" class="rangebar" hidden>
+            <button id="rangeZoom"></button>
+            <button id="rangeCancel" title="Снять выделение">✕</button>
+          </div>
+        </div>
+        <div id="legend" class="legend"></div>
+      </div>
+      <div id="holdingsWrap" class="holdings-wrap" hidden>
+        <h3>Состав инвентарей <span id="holdingsAt" class="dim"></span></h3>
+        <div class="row">
+          <input id="holdingFilter" type="search" placeholder="Предмет или блок…">
+          <label class="check inline"><input id="holdingEmpty" type="checkbox"> показывать пустые</label>
+          <span id="holdingsNote" class="dim"></span>
+        </div>
+        <div id="holdings" class="holdings"></div>
+      </div>
+      <div id="sourcesWrap" class="sources-wrap" hidden>
+        <h3>Откуда изменения <span class="dim">за интервал: было → стало и из чего это сложилось</span></h3>
+        <table id="sources" class="sources"></table>
+      </div>
+    </section>
+    <aside>
+      <nav class="tabs">
+        <button data-tab="anomalies" class="active">Аномалии</button>
+        <button data-tab="changes">Изменения</button>
+      </nav>
+      <section id="tab-anomalies" class="tab active">
+        <div class="row">
+          <select id="anomalyKind"><option value="">все виды</option></select>
+          <label class="check inline"><input id="onlySubject" type="checkbox"> только выбранного</label>
+        </div>
+        <div id="anomalies" class="list"></div>
+      </section>
+      <section id="tab-changes" class="tab">
+        <p class="hint">Каждое изменение инвентаря выбранного: когда, где, на сколько и откуда. Клик по графику
+          показывает изменения рядом с этим моментом.</p>
+        <div id="changes" class="list"></div>
+      </section>
+    </aside>
+  </main>
+
+  <div id="tip" class="tip" hidden></div>
+  <script type="module" src="ledger.js"></script>
+</body>
+</html>

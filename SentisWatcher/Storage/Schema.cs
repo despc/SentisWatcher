@@ -7,7 +7,7 @@ namespace SentisWatcher.Storage
     /// </summary>
     public static class Schema
     {
-        public const int Version = 2;
+        public const int Version = 3;
 
         public const string Create = @"
 PRAGMA journal_mode=WAL;
@@ -48,10 +48,11 @@ CREATE INDEX IF NOT EXISTS events_by_t ON events(t);
 CREATE INDEX IF NOT EXISTS events_by_actor ON events(actor, t);
 CREATE INDEX IF NOT EXISTS events_by_entity ON events(entity, t);
 
--- the content of an inventory whenever it changed (and once at the start of the day)
+-- the content of an inventory whenever it changed (and once at the start of the day); flows: where the
+-- change since its previous row came from and went to ('refine|Ingot/Iron:+4800;...'); items NULL: gone
 CREATE TABLE IF NOT EXISTS inventories(
   id INTEGER PRIMARY KEY, t INTEGER NOT NULL, entity INTEGER NOT NULL, inv INTEGER NOT NULL,
-  grid INTEGER, owner INTEGER, items TEXT, volume REAL, max_volume REAL);
+  grid INTEGER, owner INTEGER, items TEXT, volume REAL, max_volume REAL, flows TEXT);
 CREATE INDEX IF NOT EXISTS inventories_by_entity ON inventories(entity, inv, t);
 CREATE INDEX IF NOT EXISTS inventories_by_grid ON inventories(grid, t);
 CREATE INDEX IF NOT EXISTS inventories_by_owner ON inventories(owner, t);
@@ -66,5 +67,11 @@ CREATE TABLE IF NOT EXISTS alerts(
   id INTEGER PRIMARY KEY, t INTEGER NOT NULL, kind TEXT NOT NULL, actor INTEGER, entity INTEGER, detail TEXT);
 CREATE INDEX IF NOT EXISTS alerts_by_t ON alerts(t);
 ";
+
+        /// <summary>Changes to the files of older versions, each run only where it is missing.</summary>
+        public static readonly (string Table, string Column, string Alter)[] Added =
+        {
+            ("inventories", "flows", "ALTER TABLE inventories ADD COLUMN flows TEXT"),
+        };
     }
 }

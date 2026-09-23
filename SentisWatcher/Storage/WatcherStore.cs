@@ -140,8 +140,18 @@ namespace SentisWatcher.Storage
         {
             var command = _inserts[row.Table];
             var parameters = command.Parameters;
-            for (var c = 0; c < row.Values.Length; c++) parameters[c].Value = row.Values[c] ?? DBNull.Value;
+            // a row may leave out the last columns: they are NULL, not what the previous row had
+            for (var c = 0; c < parameters.Count; c++) parameters[c].Value = c < row.Values.Length ? row.Values[c] ?? DBNull.Value : DBNull.Value;
             command.ExecuteNonQuery();
+        }
+
+        public static bool HasColumn(SQLiteConnection connection, string table, string column)
+        {
+            using (var command = new SQLiteCommand("PRAGMA table_info(" + table + ")", connection))
+            using (var reader = command.ExecuteReader())
+                while (reader.Read())
+                    if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
         }
 
         private void EnsureConnection(DateTime day)
@@ -152,6 +162,9 @@ namespace SentisWatcher.Storage
             _connection = new SQLiteConnection("Data Source=" + path + ";Pooling=False;");
             _connection.Open();
             using (var create = new SQLiteCommand(Schema.Create, _connection)) create.ExecuteNonQuery();
+            foreach (var (table, column, alter) in Schema.Added)
+                if (!HasColumn(_connection, table, column))
+                    using (var command = new SQLiteCommand(alter, _connection)) command.ExecuteNonQuery();
             using (var meta = new SQLiteCommand("INSERT OR REPLACE INTO meta(key, value) VALUES('schema', @v)", _connection))
             {
                 meta.Parameters.AddWithValue("@v", Schema.Version.ToString());

@@ -56,10 +56,13 @@ namespace SentisWatcher.Recording
             Store.Add(new Row(Table.Names, Clock.Now, id, kind, name, owner, steam == 0 ? null : (object)(long)steam, Clock.Now));
         }
 
-        /// <summary>An anomaly: to the log (SentisWatcher.Alert) and the day file, once an hour per kind and thing.</summary>
-        public void Alert(string kind, long actor, long entity, string detail)
+        /// <summary>
+        /// An anomaly, into the log (SentisWatcher.Alert) and the day file; one of a kind about one thing (the entity, or
+        /// <paramref name="limitBy"/>) an hour. Any thread.
+        /// </summary>
+        public void Alert(string kind, long actor, long entity, string detail, long? limitBy = null)
         {
-            if (!_alerts.Allow(kind, entity, DateTime.UtcNow)) return;
+            if (!_alerts.Allow(kind, limitBy ?? entity, DateTime.UtcNow)) return;
             AlertLog.Warn("ALERT " + kind + " actor=" + actor + " entity=" + entity + ": " + detail);
             Store.Add(new Row(Table.Alerts, Clock.Now, Clock.Now, kind, actor, entity, detail));
         }

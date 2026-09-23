@@ -31,12 +31,27 @@ namespace SentisWatcher.Web
         public WebServer(WatcherStore store, int port)
         {
             Port = port;
-            _data = new WebData(store);
+            _data = new WebData(store) { LiveName = LiveName };
             // the build names embedded files Web/lib\x.js: one separator
             _resources = typeof(WebServer).Assembly.GetManifestResourceNames()
                 .Where(n => n.StartsWith("Web/"))
                 .ToDictionary(n => n.Substring(4).Replace('\\', '/'), n => n, StringComparer.OrdinalIgnoreCase);
             _listener.Prefixes.Add(Url);
+        }
+
+        /// <summary>A player's or an entity's name from the running game (web thread: only reads, and any failure is no name).</summary>
+        private static string LiveName(long id)
+        {
+            try
+            {
+                var identity = Sandbox.Game.World.MySession.Static?.Players?.TryGetIdentity(id);
+                if (identity != null) return identity.DisplayName;
+                return Sandbox.Game.Entities.MyEntities.TryGetEntityById(id, out var entity) ? entity.DisplayName : null;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
         }
 
         public void Start()
@@ -146,10 +161,15 @@ namespace SentisWatcher.Web
                 case "inventory": return _data.Inventory(q["kind"] ?? "entity", L("id"), L("t", now));
                 case "alerts": return _data.Alerts(from, to);
                 case "objects": return _data.Objects(from, to, q["q"]);
-                case "moment": return _data.Moment(L("t", now), L("window", 300_000));
+                case "moment":
+                    return _data.Moment(L("t", now), L("window", 300_000), 2000,
+                        q["from"] == null ? (long?)null : from, q["to"] == null ? (long?)null : to);
                 case "activity": return _data.Activity(from, to, (int)L("buckets", 400));
                 case "world": return _data.World(L("t", now));
                 case "hotspot": return _data.Hotspot(from, to);
+                case "ledger": return _data.Ledger(q["kind"], L("id"), from, to);
+                case "anomalies": return _data.Anomalies(from, to);
+                case "holdings": return _data.Holdings(q["kind"], L("id"), L("t", now));
                 case "now": return new { now, offsetMinutes = Clock.OffsetMinutes(now), zone = Clock.Zone(now) };
                 default: return null;
             }

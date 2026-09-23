@@ -34,6 +34,25 @@ namespace SentisWatcher.Recording
             }
         }
 
+        /// <summary>
+        /// Whose items an inventory holds: a block's owner (the grid's when the block has none), a character's
+        /// player, a bag's owner; 0 for anything else.
+        /// </summary>
+        public static long InventoryOwner(MyEntity entity)
+        {
+            switch (entity)
+            {
+                case MyCubeBlock block: return block.OwnerId != 0 ? block.OwnerId : Owner(block.CubeGrid);
+                case MyCharacter character: return character.GetPlayerIdentityId();
+                case MyInventoryBagEntity bag: return bag.OwnerIdentityId;
+                default: return 0;
+            }
+        }
+
+        /// <summary>Whether the identity is a player's, not nobody's and not an NPC's.</summary>
+        public static bool IsPlayer(long identityId) =>
+            identityId != 0 && MySession.Static?.Players != null && !MySession.Static.Players.IdentityIsNpc(identityId);
+
         /// <summary>The first big owner of a grid, 0 when nobody owns it.</summary>
         public static long Owner(MyCubeGrid grid) => grid?.BigOwners != null && grid.BigOwners.Count > 0 ? grid.BigOwners[0] : 0;
 

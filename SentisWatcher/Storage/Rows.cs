@@ -33,7 +33,8 @@ namespace SentisWatcher.Storage
         }
 
         /// <summary>Rows that may be dropped when the writer falls far behind: the next ones say the same.</summary>
-        public bool Droppable => Table == Table.PlayerPos || Table == Table.GridPos || Table == Table.Inventories;
+        /// (Not inventories: their flows are the ledger, a lost row breaks it.)
+        public bool Droppable => Table == Table.PlayerPos || Table == Table.GridPos;
     }
 
     /// <summary>The columns of each table, as <see cref="Row.Values"/> hold them (t first where the table has it).</summary>
@@ -47,7 +48,7 @@ namespace SentisWatcher.Storage
                 case Table.PlayerPos: return new[] { "t", "identity", "x", "y", "z", "vx", "vy", "vz", "health", "controlled", "grid" };
                 case Table.GridPos: return new[] { "t", "grid", "x", "y", "z", "fx", "fy", "fz", "ux", "uy", "uz", "vx", "vy", "vz", "blocks", "owner", "static", "radius" };
                 case Table.Events: return new[] { "t", "kind", "actor", "entity", "x", "y", "z", "amount", "count", "detail" };
-                case Table.Inventories: return new[] { "t", "entity", "inv", "grid", "owner", "items", "volume", "max_volume" };
+                case Table.Inventories: return new[] { "t", "entity", "inv", "grid", "owner", "items", "volume", "max_volume", "flows" };
                 case Table.Alerts: return new[] { "t", "kind", "actor", "entity", "detail" };
                 case Table.Planets: return new[] { "id", "name", "generator", "x", "y", "z", "radius", "min_radius", "max_radius", "atmosphere", "gravity", "t" };
                 case Table.Meta: return new[] { "key", "value" };

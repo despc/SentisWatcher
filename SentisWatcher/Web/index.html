@@ -10,6 +10,7 @@
 <body>
   <header>
     <div class="brand">SentisWatcher</div>
+    <nav class="pages"><a class="here">Карта</a><a href="ledger.html" id="toLedger" title="Инвентари по времени: откуда что бралось, аномалии">Инвентари</a></nav>
     <div class="search">
       <input id="search" type="search" placeholder="Игрок или грид: имя, steam id, id…" autocomplete="off">
       <button id="searchOpen" class="open" title="Все игроки и гриды интервала">▾</button>
@@ -28,10 +29,16 @@
 
   <main>
     <div id="view">
+      <div id="legend" class="eventlegend" hidden></div>
+      <div id="layers" class="layers" title="Что показывать на карте">
+        <button data-layer="objects">Объекты</button><button data-layer="events">События</button><button data-layer="all" class="active">Всё</button>
+      </div>
       <div id="hud" class="hud">
         <div id="hudDistance"></div>
         <div id="hudAltitude"></div>
         <div class="scale"><div id="scaleBar" class="bar"></div><span id="scaleText"></span></div>
+        <label class="hudcheck"><input id="showDistance" type="checkbox"> расстояния до объектов</label>
+        <div class="keys">WASD, пробел, C — сдвиг камеры (Shift — быстрее) · двойной клик — подлететь</div>
       </div>
     </div>
     <aside>
@@ -45,14 +52,10 @@
       </nav>
       <section id="tab-moment" class="tab active">
         <p class="hint">Кто был где в момент ползунка (клик по шкале времени переносит момент). Строка — навести
-          камеру, «+ следить» — добавить к просмотру: трек, события, инвентарь.</p>
+          камеру, двойной клик — подлететь; «+ следить» — добавить к просмотру (трек, события, инвентарь),
+          «− перестать следить» — убрать.</p>
+        <div class="row"><input id="momentFilter" type="search" placeholder="Поиск: имя или id…"></div>
         <div class="row">
-          <label>События за ± <select id="momentWindow">
-            <option value="60000">1 мин</option>
-            <option value="300000" selected>5 мин</option>
-            <option value="900000">15 мин</option>
-            <option value="3600000">1 час</option>
-          </select></label>
           <label class="check inline"><input id="showAmbient" type="checkbox" checked> всех в 3D</label>
           <button id="addActive" title="Добавить к просмотру до 10 самых активных">+ активных</button>
         </div>
@@ -63,11 +66,11 @@
           маркеру в 3D — тоже.</p>
         <div id="tracked"></div>
         <label class="check"><input id="follow" type="checkbox" checked> Камера следует за выбранным</label>
-        <label class="check"><input id="showEvents" type="checkbox" checked> События в 3D</label>
         <label class="check"><input id="showPlanets" type="checkbox" checked> Планеты</label>
       </section>
       <section id="tab-events" class="tab">
-        <div class="row"><input id="eventFilter" type="search" placeholder="Фильтр: вид, текст…"></div>
+        <div class="row"><input id="eventFilter" type="search" placeholder="Фильтр: вид, текст, объект…">
+          <label class="check inline"><input id="eventsSelected" type="checkbox"> только выбранный</label></div>
         <div id="events" class="list"></div>
       </section>
       <section id="tab-inventory" class="tab">

@@ -42,13 +42,25 @@ function jumpLine(e, color) {
   return [line, ring];
 }
 const kindColor = (k) => KIND_COLORS[k] || '#aaaaaa';
+const KIND_NAMES = {
+  damage: 'урон', grind: 'срезка', destroyed: 'уничтожение', death: 'смерть', transfer: 'перенос', drop: 'выброс',
+  weld: 'сварка', block_built: 'постройка', block_removed: 'блоки убраны', paste: 'вставка', balance: 'деньги',
+  chat: 'чат', join: 'вход', leave: 'выход', grid_added: 'грид появился', grid_removed: 'грид исчез',
+  grid_owner: 'смена владельца', grid_ownership: 'передача грида', faction: 'фракция', jump: 'прыжок',
+  jump_passenger: 'прыжок пассажиром', control: 'сел за управление', control_leave: 'вышел из управления', spawn: 'новый персонаж',
+};
+
+// what the map shows: objects (markers, tracks, labels), events (their dots and jumps), or both
+let layer = 'all';
+const showObjects = () => layer !== 'events';
+const showEventLayer = () => layer !== 'objects';
 
 // ------------------------------------------------------------------ state
 
 const state = {
   from: 0, to: 0, t: 0,
   playing: false, speed: 60,
-  tracks: [],          // { key, kind, id, name, color, points, events, names, line, marker, box, label, eventSprites }
+  tracks: [],          // { key, kind, id, name, color, points, events, names, line, marker, box, label, eventSprites, eventDots }
   selected: null,      // key
   origin: null,        // world position subtracted from everything (keeps float32 precise)
   moment: null,        // everyone at the slider's time: { at, players, grids, gridsTotal }
@@ -232,6 +244,8 @@ function dotTexture(color, ring) {
   return t;
 }
 
+const dotMap = dotTexture('#ffffff', false);
+
 function sprite(color, size, ring = false) {
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture(color, ring), sizeAttenuation: false, depthTest: false, transparent: true }));
   s.scale.set(size, size, 1);
@@ -275,7 +289,7 @@ async function loadTrack(track) {
 }
 
 function disposeTrack(track) {
-  for (const o of [track.line, track.marker, track.box, ...(track.eventSprites || [])]) {
+  for (const o of [track.line, track.marker, track.box, track.eventDots, ...(track.eventSprites || [])]) {
     if (!o) continue;
     scene.remove(o);
     o.geometry?.dispose?.();
@@ -299,6 +313,7 @@ function build3d(track) {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(segments), 3));
     track.line = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: track.color, transparent: true, opacity: 0.55 }));
+    track.line.visible = showObjects();
     scene.add(track.line);
   }
   track.marker = sprite(track.color, track.kind === 'grid' ? 0.03 : 0.022, track.kind === 'grid');
@@ -313,24 +328,62 @@ function build3d(track) {
   track.label.className = 'label3d';
   track.label.textContent = track.name;
   labels.appendChild(track.label);
+  // the events: one set of points per track, not an object each (a busy grid has thousands); the jumps
+  // add their lines
   track.eventSprites = [];
-  for (const e of track.events) {
-    if (e.x === null || e.x === undefined) continue;
-    if (e.kind === 'jump' || e.kind === 'jump_passenger') {
-      for (const o of jumpLine(e, kindColor(e.kind))) {
-        o.userData = { ...o.userData, event: e, track };
-        o.visible = $('#showEvents').checked;
-        scene.add(o);
-        track.eventSprites.push(o);
-      }
+  track.located = track.events.filter((e) => e.x !== null && e.x !== undefined).sort((a, b) => a.t - b.t);
+  track.locatedTimes = track.located.map((e) => [e.t]);
+  for (const e of track.located) {
+    if (e.kind !== 'jump' && e.kind !== 'jump_passenger') continue;
+    for (const o of jumpLine(e, kindColor(e.kind))) {
+      o.userData = { ...o.userData, event: e, track };
+      o.visible = showEventLayer();
+      scene.add(o);
+      track.eventSprites.push(o);
     }
-    const s = sprite(kindColor(e.kind), 0.011);
-    s.position.copy(world(e.x, e.y, e.z));
-    s.userData = { event: e, track };
-    s.visible = $('#showEvents').checked;
-    scene.add(s);
-    track.eventSprites.push(s);
   }
+  track.eventDots = null;
+  if (track.located.length) {
+    const n = track.located.length;
+    const pos = new Float32Array(n * 3), col = new Float32Array(n * 3), base = new Float32Array(n * 3);
+    const c = new THREE.Color();
+    track.located.forEach((e, i) => {
+      const p = world(e.x, e.y, e.z);
+      pos[i * 3] = p.x; pos[i * 3 + 1] = p.y; pos[i * 3 + 2] = p.z;
+      c.set(kindColor(e.kind));
+      base[i * 3] = c.r; base[i * 3 + 1] = c.g; base[i * 3 + 2] = c.b;
+    });
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    const dots = new THREE.Points(g, new THREE.PointsMaterial({
+      size: 7, sizeAttenuation: false, vertexColors: true, map: dotMap, alphaTest: 0.5, depthTest: false, transparent: true,
+    }));
+    dots.renderOrder = 2;
+    dots.frustumCulled = false;
+    dots.visible = showEventLayer();
+    dots.userData = { base, painted: -2 };
+    scene.add(dots);
+    track.eventDots = dots;
+    paintEvents(track, state.t);
+  }
+}
+
+// the events up to t bright, the later ones dim: only the colours between the old and the new moment change
+function paintEvents(track, t) {
+  const dots = track.eventDots;
+  if (!dots) return;
+  const upTo = indexAt(track.locatedTimes, t);
+  const was = dots.userData.painted;
+  if (upTo === was) return;
+  const col = dots.geometry.attributes.color.array, base = dots.userData.base;
+  const [a, b] = was === -2 ? [0, track.located.length] : [Math.min(was, upTo) + 1, Math.max(was, upTo) + 1];
+  for (let i = a; i < b; i++) {
+    const k = i <= upTo ? 1 : 0.3;
+    col[i * 3] = base[i * 3] * k; col[i * 3 + 1] = base[i * 3 + 1] * k; col[i * 3 + 2] = base[i * 3 + 2] * k;
+  }
+  dots.geometry.attributes.color.needsUpdate = true;
+  dots.userData.painted = upTo;
 }
 
 function removeTrack(key) {
@@ -397,7 +450,7 @@ function updateScene() {
   for (const track of state.tracks) {
     if (!track.marker) continue;      // still loading
     const s = stateAt(track, t);
-    const visible = !!s;
+    const visible = !!s && showObjects();
     track.marker.visible = visible;
     if (track.box) track.box.visible = visible;
     track.label.style.display = visible ? '' : 'none';
@@ -416,22 +469,23 @@ function updateScene() {
     }
     v.copy(s.pos).project(camera);
     const behind = v.z > 1;
-    track.label.style.display = behind ? 'none' : '';
+    track.label.style.display = behind || !showObjects() ? 'none' : '';
     track.label.style.left = ((v.x + 1) / 2 * view.clientWidth) + 'px';
     track.label.style.top = ((1 - v.y) / 2 * view.clientHeight) + 'px';
     track.label.style.opacity = s.before || s.stale ? 0.5 : 1;
-    track.label.textContent = track.name + (s.stale ? ' (нет данных)' : '');
-    for (const es of track.eventSprites) es.material.opacity = es.userData.event.t <= t ? 1 : 0.25;
+    setText(track.label, track.name + (s.stale ? ' (нет данных)' : '') + distanceNote(s.pos));
+    paintEvents(track, t);
   }
   for (const l of ambientLabels) {
     v.copy(l.pos).project(camera);
-    const off = v.z > 1 || Math.abs(v.x) > 1.1 || Math.abs(v.y) > 1.1;
+    const off = v.z > 1 || Math.abs(v.x) > 1.1 || Math.abs(v.y) > 1.1 || !showObjects();
     l.el.style.display = off ? 'none' : '';
     if (off) continue;
     l.el.style.left = ((v.x + 1) / 2 * view.clientWidth) + 'px';
     l.el.style.top = ((1 - v.y) / 2 * view.clientHeight) + 'px';
+    setText(l.el, l.name + distanceNote(l.pos));
   }
-  if ($('#follow').checked) {
+  if ($('#follow').checked && !flight) {
     const sel = selectedTrack();
     const s = sel && stateAt(sel, t);
     if (s) {
@@ -443,6 +497,13 @@ function updateScene() {
   $('#clock').textContent = fmt(state.t);
   updateHud();
 }
+
+// a label's text is set only when it changes: writing it every frame costs a layout each time
+function setText(el, text) {
+  if (el._text !== text) { el._text = text; el.textContent = text; }
+}
+// " · 1.2 км" from the camera, when the map shows distances
+const distanceNote = (pos) => $('#showDistance').checked ? ' · ' + distanceText(camera.position.distanceTo(pos)) : '';
 
 // ------------------------------------------------------------------ scale: distance to what is looked at, altitude, a scale bar
 
@@ -601,19 +662,24 @@ let momentRequest = 0;
 let lastMomentAt = 0;
 let focusedOnce = false;
 
+const ambientMaterials = {};
 function ambientSprite(color, size) {
-  const key = color + size;
   if (!ambientTextures[color]) ambientTextures[color] = dotTexture(color, false);
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: ambientTextures[color], sizeAttenuation: false, depthTest: false, transparent: true, opacity: 0.85 }));
+  // one material for each colour, shared by every dot of it
+  const material = ambientMaterials[color] || (ambientMaterials[color] =
+    new THREE.SpriteMaterial({ map: ambientTextures[color], sizeAttenuation: false, depthTest: false, transparent: true, opacity: 0.85 }));
+  const s = new THREE.Sprite(material);
   s.scale.set(size, size, 1);
   s.renderOrder = 1;
+  s.userData.shared = true;
   return s;
 }
 
 const loadMoment = debounce(async () => {
   const request = ++momentRequest;
   const t = Math.round(state.t);
-  const data = await api('moment', { t, window: Number($('#momentWindow').value) });
+  // where everyone was: near the moment; their events: over the whole range chosen on the timeline
+  const data = await api('moment', { t, window: 300_000, from: Math.round(state.from), to: Math.round(state.to) });
   if (request !== momentRequest) return;
   lastMomentAt = t;
   state.moment = data;
@@ -622,7 +688,11 @@ const loadMoment = debounce(async () => {
 }, 250);
 
 function buildAmbient() {
-  for (const s of ambient.children) { s.geometry?.dispose?.(); s.material.dispose(); }
+  for (const s of ambient.children) {
+    if (s.userData.shared) continue;
+    s.geometry?.dispose?.();
+    s.material.dispose();
+  }
   ambient.clear();
   for (const l of ambientLabels) l.el.remove();
   ambientLabels.length = 0;
@@ -637,7 +707,8 @@ function buildAmbient() {
     const s = ambientSprite(color, kind === 'player' ? 0.014 : hot ? 0.012 : 0.008);
     const pos = world(o.x, o.y, o.z);
     s.position.copy(pos);
-    s.userData = { ambient: o, kind };
+    s.userData = { ambient: o, kind, shared: true };
+    s.visible = showObjects();
     ambient.add(s);
     if ((kind === 'player' || hot) && ambientLabels.length < 60) {
       const el = document.createElement('div');
@@ -645,7 +716,7 @@ function buildAmbient() {
       el.style.opacity = 0.75;
       el.textContent = o.name || o.id;
       labels.appendChild(el);
-      ambientLabels.push({ el, pos });
+      ambientLabels.push({ el, pos, name: o.name || o.id });
     }
   };
   m.players.forEach((o) => add(o, 'player'));
@@ -653,7 +724,8 @@ function buildAmbient() {
   for (const j of m.jumps || []) {
     if (findTrack(trackKey('grid', j.entity))) continue;      // a tracked grid draws its own
     for (const o of jumpLine(j, '#c39bd3')) {
-      if (o.isSprite) o.userData = { ambientJump: j };
+      o.userData = o.isSprite ? { ambientJump: j, layer: 'events' } : { layer: 'events' };
+      o.visible = showEventLayer();
       ambient.add(o);
     }
   }
@@ -676,33 +748,52 @@ function focusOn(pos) {
 function renderMoment() {
   const m = state.moment;
   if (!m) return;
+  const q = $('#momentFilter').value.trim().toLowerCase();
+  const match = (o) => !q || (o.name || '').toLowerCase().includes(q) || String(o.id).includes(q);
+  const players = m.players.filter(match), grids = m.grids.filter(match);
   const row = (o, kind) => {
     const tracked = findTrack(trackKey(kind, o.id));
     const where = kind === 'grid' ? `${o.blocks} бл.${o.static ? ', статика' : ''}` : (o.grid ? 'на гриде' : 'пешком');
     return `<div class="item" data-kind="${kind}" data-id="${esc(o.id)}">
-      <button data-add title="${tracked ? 'Уже в просмотре' : 'Добавить к просмотру: трек, события, инвентарь'}"${tracked ? ' disabled' : ''}>${tracked ? '✓ следим' : '+ следить'}</button>
+      ${trackButton(kind, o.id, o.name)}
       <span class="count ${o.events ? 'hot' : ''}">${o.events ? plural(o.events, 'событие', 'события', 'событий') : 'без событий'}</span>
       <b>${esc(o.name || o.id)}</b><br><span class="when">${esc(where)} · позиция ${fmt(o.t, false)}</span></div>`;
   };
-  const w = Number($('#momentWindow').value) / 60000;
-  $('#moment').innerHTML = `<p class="hint">${fmt(m.at)}: игроков ${m.players.length}, гридов ${m.gridsTotal}
-      (события — за ± ${w} мин).</p>` +
-    (m.players.length ? `<div class="head">Игроки</div>` + m.players.map((o) => row(o, 'player')).join('') : '') +
-    (m.grids.length ? `<div class="head">Гриды</div>` + m.grids.slice(0, 300).map((o) => row(o, 'grid')).join('') +
-      (m.grids.length > 300 ? `<div class="more">и ещё ${m.gridsTotal - 300}</div>` : '') : '') +
-    (!m.players.length && !m.grids.length ? '<p class="hint">В этот момент записей нет.</p>' : '');
+  $('#moment').innerHTML = `<p class="hint">${fmt(m.at)}: игроков ${m.players.length}, гридов ${m.gridsTotal};
+      события — за интервал шкалы ${fmt(m.eventsFrom)} – ${fmt(m.eventsTo)}${q ? `; по запросу: ${players.length + grids.length}` : ''}.</p>` +
+    (players.length ? `<div class="head">Игроки</div>` + players.map((o) => row(o, 'player')).join('') : '') +
+    (grids.length ? `<div class="head">Гриды</div>` + grids.slice(0, 300).map((o) => row(o, 'grid')).join('') +
+      (grids.length > 300 ? `<div class="more">и ещё ${grids.length - 300} — уточните поиск</div>` : '') : '') +
+    (!players.length && !grids.length ? `<p class="hint">${q ? 'Никого не нашлось.' : 'В этот момент записей нет.'}</p>` : '');
   document.querySelectorAll('#moment .item').forEach((el) => {
     const list = el.dataset.kind === 'player' ? m.players : m.grids;
     const o = list.find((x) => x.id === el.dataset.id);
     el.addEventListener('click', () => focusOn(world(o.x, o.y, o.z)));
-    el.querySelector('[data-add]').addEventListener('click', (e) => {
-      e.stopPropagation();
-      addTrack(el.dataset.kind, o.id, o.name).then(() => { buildAmbient(); renderMoment(); });
-    });
+    el.addEventListener('dblclick', () => flyTo(world(o.x, o.y, o.z)));
   });
+  bindTrackButtons($('#moment'));
 }
 
-$('#momentWindow').addEventListener('change', loadMoment);
+// "+ следить" adds to the view; once tracked, the same button stops it
+function trackButton(kind, id, name) {
+  const tracked = findTrack(trackKey(kind, id));
+  return tracked
+    ? `<button class="untrack" data-track="${kind}" data-id="${esc(id)}" data-name="${esc(name || '')}" title="Убрать из просмотра">− перестать следить</button>`
+    : `<button data-track="${kind}" data-id="${esc(id)}" data-name="${esc(name || '')}" title="Добавить к просмотру: трек, события, инвентарь">+ следить</button>`;
+}
+function bindTrackButtons(container) {
+  container.querySelectorAll('button[data-track]').forEach((b) => b.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const key = trackKey(b.dataset.track, b.dataset.id);
+    if (findTrack(key)) removeTrack(key);
+    else await addTrack(b.dataset.track, b.dataset.id, b.dataset.name);
+    buildAmbient();
+    renderMoment();
+    if (lastNear) renderNear();
+  }));
+}
+$('#momentFilter').addEventListener('input', debounce(() => renderMoment(), 150));
+
 $('#showAmbient').addEventListener('change', buildAmbient);
 $('#addActive').addEventListener('click', async () => {
   const m = state.moment;
@@ -716,17 +807,46 @@ $('#addActive').addEventListener('click', async () => {
 
 // ------------------------------------------------------------------ picking and tips
 
-const raycaster = new THREE.Raycaster();
-const mouse = new THREE.Vector2();
+// what is under the mouse: the nearest thing within a few pixels on the screen (markers first), found by
+// projecting their positions - cheaper than casting a ray at thousands of dots
+const pickV = new THREE.Vector3();
 function pick(ev) {
   const r = renderer.domElement.getBoundingClientRect();
-  mouse.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
-  raycaster.setFromCamera(mouse, camera);
-  const targets = [...state.tracks.flatMap((t) => [t.marker, ...(t.eventSprites || []).filter((s) => s.visible && s.isSprite)]).filter(Boolean),
-    ...ambient.children.filter((o) => o.isSprite)];
-  return raycaster.intersectObjects(targets, false)[0]?.object;
+  const mx = ev.clientX - r.left, my = ev.clientY - r.top;
+  let best = null, bestD = 10 * 10;
+  const near = (x, y, z, weight) => {
+    pickV.set(x, y, z).project(camera);
+    if (pickV.z > 1) return Infinity;
+    const dx = (pickV.x + 1) / 2 * r.width - mx, dy = (1 - pickV.y) / 2 * r.height - my;
+    return (dx * dx + dy * dy) * weight;
+  };
+  const consider = (o, weight = 1) => {
+    const d = near(o.position.x, o.position.y, o.position.z, weight);
+    if (d < bestD) { bestD = d; best = o; }
+  };
+  for (const t of state.tracks) {
+    if (t.marker?.visible) consider(t.marker, 0.4);
+    for (const s of t.eventSprites || []) if (s.visible && s.isSprite) consider(s);
+    const dots = t.eventDots;
+    if (dots?.visible) {
+      const p = dots.geometry.attributes.position.array;
+      for (let i = 0; i < t.located.length; i++) {
+        const d = near(p[i * 3], p[i * 3 + 1], p[i * 3 + 2], 1);
+        if (d < bestD) {
+          bestD = d;
+          best = { position: new THREE.Vector3(p[i * 3], p[i * 3 + 1], p[i * 3 + 2]), userData: { event: t.located[i], track: t } };
+        }
+      }
+    }
+  }
+  for (const o of ambient.children) if (o.isSprite) consider(o, 0.7);
+  return best;
 }
-renderer.domElement.addEventListener('mousemove', (ev) => {
+// the tip follows the mouse, worked out once a frame at most
+let hoverEvent = null;
+renderer.domElement.addEventListener('mousemove', (ev) => { hoverEvent = ev; });
+renderer.domElement.addEventListener('mouseleave', () => { hoverEvent = null; $('#tip').hidden = true; });
+function hover(ev) {
   const o = pick(ev);
   const tip = $('#tip');
   if (!o) { tip.hidden = true; return; }
@@ -744,7 +864,16 @@ renderer.domElement.addEventListener('mousemove', (ev) => {
       `<br>${a.events ? plural(a.events, 'событие', 'события', 'событий') : 'без событий'} · клик — добавить`;
     return;
   }
-  tip.innerHTML = o.userData.event ? eventHtml(o.userData.event, o.userData.track) : `<b>${esc(o.userData.track.name)}</b><br>${esc(o.userData.track.kind)} ${esc(o.userData.track.id)}`;
+  tip.innerHTML = o.userData.event ? eventHtml(o.userData.event, o.userData.track) : `<b>${esc(o.userData.track.name)}</b><br>${esc(o.userData.track.kind)} ${esc(o.userData.track.id)}` +
+    '<br><span class="utc">двойной клик — подлететь</span>';
+}
+// a double click flies up to what is under the mouse
+renderer.domElement.addEventListener('dblclick', (ev) => {
+  const o = pick(ev);
+  if (!o) return;
+  const marker = o.userData.track && !o.userData.event;
+  if (marker) select(o.userData.track.key, false);
+  flyTo(o.position.clone(), marker);
 });
 renderer.domElement.addEventListener('click', (ev) => {
   const o = pick(ev);
@@ -788,14 +917,24 @@ function renderTracked() {
     </div>`).join('');
   document.querySelectorAll('#tracked .track').forEach((el) => {
     el.addEventListener('click', () => select(el.dataset.key));
+    el.addEventListener('dblclick', () => {
+      const track = findTrack(el.dataset.key);
+      const s = track && stateAt(track, state.t);
+      if (s) flyTo(s.pos, true);
+    });
     el.querySelector('.x').addEventListener('click', (e) => { e.stopPropagation(); removeTrack(el.dataset.key); });
   });
 }
 
+// who an id is: the name when any list knows it, the id only when none does
 function who(id, track) {
   if (!id || id === '0') return '';
-  const name = track?.names?.[id] || state.tracks.find((t) => t.id === id)?.name;
-  return name ? `${name} (${id})` : id;
+  return track?.names?.[id] || state.tracks.find((t) => t.id === id)?.name || momentName(id) ||
+    state.tracks.map((t) => t.names?.[id]).find(Boolean) || id;
+}
+function momentName(id) {
+  const m = state.moment;
+  return m && (m.players.find((o) => o.id === id)?.name || m.grids.find((o) => o.id === id)?.name);
 }
 
 function eventHtml(e, track) {
@@ -813,33 +952,93 @@ function eventHtml(e, track) {
   return parts.join(' ');
 }
 
+// The events of every tracked object (or only the selected one), in time order. Only a window of them
+// around the moment is in the page: thousands of rows made every move of the slider slow.
+const EVENT_WINDOW = 300;
+let eventList = [];             // [{ e, track, t }]
+let eventWindow = null;         // { start, end } of eventList in the page
+let eventNow = -1;
+
 function renderEvents() {
+  const only = $('#eventsSelected').checked;
   const sel = selectedTrack();
   const filter = $('#eventFilter').value.trim().toLowerCase();
-  const events = (sel ? sel.events : []).filter((e) => !filter || (e.kind + ' ' + (e.detail || '')).toLowerCase().includes(filter));
-  const nowIndex = indexAt(events.map((e) => [e.t]), state.t);
-  $('#events').innerHTML = events.length ? events.map((e, i) =>
-    `<div class="item ${i === nowIndex ? 'now' : e.t > state.t ? '' : 'past'}" data-t="${e.t}">${eventHtml(e, sel)}</div>`).join('')
-    : '<p class="hint">Нет событий у выбранного объекта в этом интервале.</p>';
-  document.querySelectorAll('#events .item').forEach((el) => el.addEventListener('click', () => setTime(Number(el.dataset.t))));
+  eventList = [];
+  for (const track of only ? (sel ? [sel] : []) : state.tracks)
+    for (const e of track.events)
+      if (!filter || (e.kind + ' ' + (e.detail || '') + ' ' + track.name).toLowerCase().includes(filter)) eventList.push({ e, track, t: e.t });
+  eventList.sort((a, b) => a.t - b.t);
+  eventWindow = null;
+  showEvents(true);
+  renderLegend();
 }
-$('#eventFilter').addEventListener('input', renderEvents);
+$('#eventFilter').addEventListener('input', debounce(renderEvents, 150));
+$('#eventsSelected').addEventListener('change', renderEvents);
 
-// scrolls the event list to the current moment without rebuilding it on every frame
-function markEventsNow() {
-  const items = [...document.querySelectorAll('#events .item')];
-  let now = null;
-  for (const el of items) {
-    const t = Number(el.dataset.t);
-    el.classList.toggle('past', t <= state.t);
-    el.classList.remove('now');
-    if (t <= state.t) now = el;
+function eventIndexAt(t) {
+  let lo = 0, hi = eventList.length - 1, found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (eventList[mid].t <= t) { found = mid; lo = mid + 1; } else hi = mid - 1;
   }
-  if (now) {
-    now.classList.add('now');
-    if (state.playing) now.scrollIntoView({ block: 'nearest' });
-  }
+  return found;
 }
+
+// the window around the moment: rebuilt only when the moment nears its edge
+function showEvents(force = false) {
+  const list = $('#events');
+  const now = eventIndexAt(state.t);
+  const w = eventWindow;
+  const inside = w && (now >= w.start + 30 || w.start === 0) && (now < w.end - 30 || w.end === eventList.length);
+  if (!force && inside) { markEventsNow(now); return; }
+  if (!eventList.length) {
+    list.innerHTML = `<p class="hint">${state.tracks.length ? 'Нет событий у отслеживаемых в этом интервале.' : 'Добавьте игрока или грид к просмотру.'}</p>`;
+    eventWindow = { start: 0, end: 0 };
+    return;
+  }
+  const start = Math.max(0, Math.min(now - EVENT_WINDOW / 2, eventList.length - EVENT_WINDOW));
+  const end = Math.min(eventList.length, start + EVENT_WINDOW);
+  const many = state.tracks.length > 1 && !$('#eventsSelected').checked;
+  let html = start > 0 ? `<div class="more">раньше ещё ${start} — сдвиньте время назад</div>` : '';
+  for (let i = start; i < end; i++) {
+    const { e, track } = eventList[i];
+    // whose event: a stripe of the object's colour at the left (the dot colours are the kinds, on the map)
+    const whose = many ? `<b>${esc(track.name)}</b> ` : '';
+    const stripe = many ? ` style="border-left-color:${track.color}"` : '';
+    html += `<div class="item${many ? ' owned' : ''} ${e.t > state.t ? 'later' : ''}" data-i="${i}"${stripe}>${whose}${eventHtml(e, track)}</div>`;
+  }
+  if (end < eventList.length) html += `<div class="more">позже ещё ${eventList.length - end}</div>`;
+  list.innerHTML = html;
+  eventWindow = { start, end };
+  eventNow = -2;
+  markEventsNow(now);
+}
+
+// marks the rows between the old and the new moment, and scrolls to the moment
+function markEventsNow(now) {
+  if (now === eventNow || !eventWindow) return;
+  const rows = $('#events').querySelectorAll('.item');
+  const { start } = eventWindow;
+  rows.forEach((el, k) => {
+    const i = start + k;
+    el.classList.toggle('later', i > now);        // as on the map: what is still to come is dim
+    el.classList.toggle('now', i === now);
+  });
+  eventNow = now;
+  const current = rows[now - start];
+  if (current && activeTab() === 'events') current.scrollIntoView({ block: 'nearest' });
+}
+
+// one listener for every row: a click sets the time, a double click flies up to where it happened
+$('#events').addEventListener('click', (ev) => {
+  const row = ev.target.closest('.item');
+  if (row) setTime(eventList[Number(row.dataset.i)].t);
+});
+$('#events').addEventListener('dblclick', (ev) => {
+  const row = ev.target.closest('.item');
+  const e = row && eventList[Number(row.dataset.i)]?.e;
+  if (e && e.x !== null && e.x !== undefined) flyTo(world(e.x, e.y, e.z));
+});
 
 // ------------------------------------------------------------------ inventory
 
@@ -895,13 +1094,20 @@ $('#nearGo').addEventListener('click', async () => {
   status('Поиск рядом…');
   const data = await api('near', { x: p[1], y: p[2], z: p[3], r, from: Math.round(state.t - w), to: Math.round(state.t + w) });
   status('');
-  const row = (kind, o) => `<div class="item"><button data-kind="${kind}" data-id="${esc(o.id)}" data-name="${esc(data.names[o.id] || '')}" title="Добавить к просмотру">+ следить</button>
+  lastNear = { data, r, w, name: sel.name, at: state.t };
+  renderNear();
+});
+
+let lastNear = null;
+function renderNear() {
+  const { data, r, w, name, at } = lastNear;
+  const row = (kind, o) => `<div class="item">${trackButton(kind, o.id, data.names[o.id])}
     ${kind === 'grid' ? 'грид' : 'игрок'} <b>${esc(data.names[o.id] || o.id)}</b><br>
     <span class="when">${fmt(o.first, false)} – ${fmt(o.last, false)}</span></div>`;
-  $('#near').innerHTML = `<p class="hint">В ${num(r, 0)} м от «${esc(sel.name)}», ${fmt(state.t - w, false)}–${fmt(state.t + w, false)}.</p>` +
+  $('#near').innerHTML = `<p class="hint">В ${num(r, 0)} м от «${esc(name)}», ${fmt(at - w, false)}–${fmt(at + w, false)}.</p>` +
     data.players.map((o) => row('player', o)).join('') + data.grids.map((o) => row('grid', o)).join('');
-  document.querySelectorAll('#near button').forEach((b) => b.addEventListener('click', () => addTrack(b.dataset.kind, b.dataset.id, b.dataset.name)));
-});
+  bindTrackButtons($('#near'));
+}
 
 $('#alertsGo').addEventListener('click', async () => {
   const alerts = await api('alerts', { from: state.from, to: state.to });
@@ -1006,7 +1212,8 @@ document.addEventListener('mousedown', (e) => { if (!e.target.closest('.search')
 
 function setTime(t, fromPlayback = false) {
   state.t = Math.min(state.to, Math.max(state.from, t));
-  if (!fromPlayback) { renderEvents(); saveHash(); } else markEventsNow();
+  showEvents();
+  if (!fromPlayback) saveHash();
   refreshInventory();
   if (!fromPlayback || Math.abs(state.t - lastMomentAt) > 2000 * state.speed) loadMoment();
   drawTimeline();
@@ -1072,9 +1279,30 @@ $('#play').addEventListener('click', () => {
   $('#play').textContent = state.playing ? '⏸' : '▶';
   if (!state.playing) setTime(state.t);
 });
-$('#showEvents').addEventListener('change', () => {
-  for (const t of state.tracks) for (const s of t.eventSprites) s.visible = $('#showEvents').checked;
-});
+function setLayer(value) {
+  layer = value;
+  document.querySelectorAll('#layers button').forEach((b) => b.classList.toggle('active', b.dataset.layer === value));
+  for (const t of state.tracks) {
+    for (const s of t.eventSprites) s.visible = showEventLayer();
+    if (t.eventDots) t.eventDots.visible = showEventLayer();
+    if (t.line) t.line.visible = showObjects();
+  }
+  for (const o of ambient.children) o.visible = o.userData.layer === 'events' ? showEventLayer() : showObjects();
+  renderLegend();
+  saveHash();
+}
+
+// what the colours of the event dots on the map mean: the kinds the tracked objects have, most frequent first
+function renderLegend() {
+  const counts = {};
+  for (const t of state.tracks) for (const e of t.located || []) counts[e.kind] = (counts[e.kind] || 0) + 1;
+  const kinds = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+  const legend = $('#legend');
+  legend.hidden = !kinds.length || !showEventLayer();
+  legend.innerHTML = '<div class="title">События на карте</div>' + kinds.map((k) =>
+    `<div><span class="dot" style="background:${kindColor(k)}"></span>${esc(KIND_NAMES[k] || k)} <span class="n">${counts[k]}</span></div>`).join('');
+}
+document.querySelectorAll('#layers button').forEach((b) => b.addEventListener('click', () => setLayer(b.dataset.layer)));
 
 // ------------------------------------------------------------------ timeline: time axis, activity bars, tracked objects
 
@@ -1112,9 +1340,15 @@ const loadActivity = debounce(async () => {
     b.movement = (b.counts['@players'] || 0) + (b.counts['@grids'] || 0);
   }
   activity = data;
+  activityVersion++;
   drawTimeline();
 }, 150);
 
+// The bars, the axis and the rows of the tracked objects change with the data, not with the moment: drawn
+// into a canvas of their own when the data changes, and copied under the moment's line otherwise.
+const timelineBase = document.createElement('canvas');
+let timelineBaseKey = '';
+let activityVersion = 0;
 function drawTimeline() {
   const w = timeline.clientWidth, h = timeline.clientHeight;
   if (!w) return;
@@ -1123,7 +1357,24 @@ function drawTimeline() {
     timeline.width = Math.round(w * ratio);
     timeline.height = Math.round(h * ratio);
   }
+  const key = [w, h, ratio, state.from, state.to, activityVersion, ...state.tracks.map((t) => t.key + t.color + t.events.length + '/' + t.points.length)].join('|');
+  if (key !== timelineBaseKey) {
+    timelineBase.width = timeline.width;
+    timelineBase.height = timeline.height;
+    drawTimelineBase(timelineBase.getContext('2d'), w, h, ratio);
+    timelineBaseKey = key;
+  }
   const g = timeline.getContext('2d');
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.clearRect(0, 0, timeline.width, timeline.height);
+  g.drawImage(timelineBase, 0, 0);
+  g.setTransform(ratio, 0, 0, ratio, 0, 0);
+  const span = Math.max(1, state.to - state.from);
+  const x = (t) => (t - state.from) / span * w;
+  drawTimelineNow(g, x, h);
+}
+
+function drawTimelineBase(g, w, h, ratio) {
   g.setTransform(ratio, 0, 0, ratio, 0, 0);
   g.clearRect(0, 0, w, h);
   g.fillStyle = '#12151a';
@@ -1192,6 +1443,9 @@ function drawTimeline() {
     }
   });
 
+}
+
+function drawTimelineNow(g, x, h) {
   // the selected range
   if (typeof selection !== 'undefined' && selection) {
     g.fillStyle = 'rgba(95,179,249,0.18)';
@@ -1279,7 +1533,6 @@ window.addEventListener('mouseup', (ev) => {
     selection = null;
     $('#rangeBar').hidden = true;
     setTime(downT);
-    showTab('moment');
   } else if (mode === 'scrub') {
     setTime(state.t);
   } else if (mode === 'select' && selection) {
@@ -1369,7 +1622,15 @@ function saveHash() {
   if (state.tracks.length) h.set('tracks', state.tracks.map((t) => t.key).join(','));
   if (state.selected) h.set('sel', state.selected);
   if (activeTab() && activeTab() !== 'moment') h.set('tab', activeTab());
+  if (layer !== 'all') h.set('layer', layer);
   history.replaceState(null, '', '#' + h.toString());
+  // the inventories page opens on the same range and the selected player or grid
+  const ledger = new URLSearchParams();
+  ledger.set('from', state.from);
+  ledger.set('to', state.to);
+  const [kind, id] = (state.selected || '').split(':');
+  if (id && (kind === 'player' || kind === 'grid')) { ledger.set('kind', kind); ledger.set('id', id); }
+  $('#toLedger').href = 'ledger.html#' + ledger.toString();
 }
 
 async function start() {
@@ -1392,10 +1653,75 @@ async function start() {
   }
   if (h.get('sel') && findTrack(h.get('sel'))) select(h.get('sel'));
   if (h.get('tab')) showTab(h.get('tab'));
+  if (h.get('layer')) setLayer(h.get('layer'));
   setTime(state.t);
   const days = await api('days');
   if (!state.tracks.length) status(days.length ? `Записи есть за ${days.length} дн. (последний ${days[0]}). Найдите игрока или грид.` : 'Записей пока нет.');
 }
+
+// ------------------------------------------------------------------ flying up to things, moving by keys
+
+// a smooth flight of the camera to 100 m from a point, looking at it from where it looked before
+let flight = null;
+function flyTo(pos, keepFollow = false, distance = 100) {
+  if (!keepFollow) $('#follow').checked = false;     // else the camera goes back to the selected one
+  const dir = camera.position.clone().sub(controls.target);
+  if (dir.lengthSq() < 1e-6) dir.set(1, 0.8, 1);
+  dir.setLength(distance);
+  flight = {
+    t0: performance.now(), ms: 700,
+    fromTarget: controls.target.clone(), fromCamera: camera.position.clone(),
+    toTarget: pos.clone(), toCamera: pos.clone().add(dir),
+  };
+  helper.position.copy(pos);
+}
+function fly(now) {
+  if (!flight) return;
+  const k = Math.min(1, (now - flight.t0) / flight.ms);
+  const e = k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2;
+  controls.target.lerpVectors(flight.fromTarget, flight.toTarget, e);
+  camera.position.lerpVectors(flight.fromCamera, flight.toCamera, e);
+  if (k >= 1) flight = null;
+}
+
+// W, A, S, D move the camera along the view, Space up, C down (on the screen); Shift is faster. The speed
+// grows with the distance to what is looked at, so a ship and a planet both take a few seconds.
+const MOVE_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyC'];
+const keysDown = new Set();
+const typing = (el) => !!el?.matches && (el.matches('textarea, select, input:not([type=checkbox]):not([type=radio]):not([type=button])'));
+window.addEventListener('keydown', (e) => {
+  if (typing(e.target) || e.ctrlKey || e.altKey || e.metaKey) return;
+  if (!MOVE_KEYS.includes(e.code)) return;
+  e.preventDefault();                               // no page scroll, no button pressed by Space
+  if (document.activeElement && document.activeElement !== document.body && !typing(document.activeElement)) document.activeElement.blur();
+  keysDown.add(e.code);
+});
+window.addEventListener('keyup', (e) => keysDown.delete(e.code));
+window.addEventListener('blur', () => keysDown.clear());
+const moveV = new THREE.Vector3(), axisV = new THREE.Vector3();
+function moveByKeys(dt) {
+  if (!keysDown.size) return;
+  moveV.set(0, 0, 0);
+  const m = camera.matrixWorld;
+  const add = (column, sign) => moveV.add(axisV.setFromMatrixColumn(m, column).multiplyScalar(sign));
+  if (keysDown.has('KeyW')) add(2, -1);
+  if (keysDown.has('KeyS')) add(2, 1);
+  if (keysDown.has('KeyA')) add(0, -1);
+  if (keysDown.has('KeyD')) add(0, 1);
+  if (keysDown.has('Space')) add(1, 1);
+  if (keysDown.has('KeyC')) add(1, -1);
+  if (!moveV.lengthSq()) return;
+  const fast = keysDown.has('Shift');
+  const speed = Math.max(20, camera.position.distanceTo(controls.target)) * (fast ? 3 : 1);
+  moveV.normalize().multiplyScalar(speed * Math.min(dt, 100) / 1000);
+  camera.position.add(moveV);
+  controls.target.add(moveV);
+  helper.position.copy(controls.target);
+  $('#follow').checked = false;
+  flight = null;
+}
+window.addEventListener('keydown', (e) => { if (e.key === 'Shift') keysDown.add('Shift'); });
+window.addEventListener('keyup', (e) => { if (e.key === 'Shift') keysDown.delete('Shift'); });
 
 // ------------------------------------------------------------------ loop
 
@@ -1410,8 +1736,11 @@ function frame(now) {
       setTime(state.t + dt * state.speed, true);
       if (state.t >= state.to) { state.playing = false; $('#play').textContent = '▶'; setTime(state.t); }
     }
+    fly(now);
+    moveByKeys(dt);
     controls.update();
     updateScene();
+    if (hoverEvent) { hover(hoverEvent); hoverEvent = null; }
     renderer.render(scene, camera);
   } catch (e) {
     if (String(e) !== frameError) { frameError = String(e); status('Ошибка отрисовки: ' + e.message, true); }
