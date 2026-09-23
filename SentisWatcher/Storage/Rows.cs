@@ -1,0 +1,91 @@
+using System;
+
+namespace SentisWatcher.Storage
+{
+    /// <summary>The tables a row goes to.</summary>
+    public enum Table
+    {
+        Names,
+        PlayerPos,
+        GridPos,
+        Events,
+        Inventories,
+        Alerts,
+    }
+
+    /// <summary>
+    /// One row to write: its table and its values in the column order of <see cref="Columns"/>. Made on the
+    /// game thread, written on the writer's.
+    /// </summary>
+    public sealed class Row
+    {
+        public readonly Table Table;
+        public readonly long Time;
+        public readonly object[] Values;
+
+        public Row(Table table, long time, params object[] values)
+        {
+            Table = table;
+            Time = time;
+            Values = values;
+        }
+
+        /// <summary>Rows that may be dropped when the writer falls far behind: the next ones say the same.</summary>
+        public bool Droppable => Table == Table.PlayerPos || Table == Table.GridPos || Table == Table.Inventories;
+    }
+
+    /// <summary>The columns of each table, as <see cref="Row.Values"/> hold them (t first where the table has it).</summary>
+    public static class Columns
+    {
+        public static string[] Of(Table table)
+        {
+            switch (table)
+            {
+                case Table.Names: return new[] { "id", "kind", "name", "owner", "steam", "t" };
+                case Table.PlayerPos: return new[] { "t", "identity", "x", "y", "z", "vx", "vy", "vz", "health", "controlled", "grid" };
+                case Table.GridPos: return new[] { "t", "grid", "x", "y", "z", "fx", "fy", "fz", "ux", "uy", "uz", "vx", "vy", "vz", "blocks", "owner", "static", "radius" };
+                case Table.Events: return new[] { "t", "kind", "actor", "entity", "x", "y", "z", "amount", "count", "detail" };
+                case Table.Inventories: return new[] { "t", "entity", "inv", "grid", "owner", "items", "volume", "max_volume" };
+                case Table.Alerts: return new[] { "t", "kind", "actor", "entity", "detail" };
+                default: throw new ArgumentOutOfRangeException(nameof(table));
+            }
+        }
+
+        public static string TableName(Table table)
+        {
+            switch (table)
+            {
+                case Table.Names: return "names";
+                case Table.PlayerPos: return "player_pos";
+                case Table.GridPos: return "grid_pos";
+                case Table.Events: return "events";
+                case Table.Inventories: return "inventories";
+                case Table.Alerts: return "alerts";
+                default: throw new ArgumentOutOfRangeException(nameof(table));
+            }
+        }
+
+        public static string Insert(Table table)
+        {
+            var columns = Of(table);
+            var verb = table == Table.Names ? "INSERT OR REPLACE" : "INSERT";
+            return verb + " INTO " + TableName(table) + "(" + string.Join(",", columns) + ") VALUES(@" +
+                   string.Join(",@", columns) + ")";
+        }
+    }
+
+    /// <summary>Time as the day files hold it.</summary>
+    public static class Clock
+    {
+        private static readonly DateTime Epoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        public static long Now => ToMs(DateTime.UtcNow);
+
+        public static long ToMs(DateTime utc) => (long)(utc.ToUniversalTime() - Epoch).TotalMilliseconds;
+
+        public static DateTime FromMs(long ms) => Epoch.AddMilliseconds(ms);
+
+        /// <summary>The UTC day of the time, the day file it belongs to.</summary>
+        public static DateTime Day(long ms) => FromMs(ms).Date;
+    }
+}

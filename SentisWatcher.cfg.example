@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SentisWatcher: Instance\SentisWatcher.cfg. Создаётся при первом запуске со значениями по умолчанию. -->
+<WatcherConfig xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+
+  <!-- Записывать ли вообще. -->
+  <Enabled>true</Enabled>
+
+  <!-- Сколько дней хранить записи (сегодня считается). Файлы старше удаляются при старте и в полночь UTC. -->
+  <RetentionDays>14</RetentionDays>
+
+  <!-- Куда класть суточные файлы. Пусто — Instance\SentisWatcher. -->
+  <DatabaseFolder />
+</WatcherConfig>
