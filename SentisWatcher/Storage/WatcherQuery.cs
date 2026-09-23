@@ -21,7 +21,8 @@ namespace SentisWatcher.Storage
             _store = store;
         }
 
-        public static string Time(long ms) => Clock.FromMs(ms).ToString("MM-dd HH:mm:ss", CultureInfo.InvariantCulture) + "Z";
+        /// <summary>A time on the server's clock (the zone is said once, in the header of an answer).</summary>
+        public static string Time(long ms) => Clock.Local(ms).ToString("MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
 
         private IEnumerable<SQLiteConnection> Days(long from, long to)
         {
@@ -58,7 +59,7 @@ namespace SentisWatcher.Storage
         public string Player(long identity, string name, long from, long to, int maxEvents)
         {
             var text = new StringBuilder();
-            text.AppendLine($"{name} ({identity}), {Time(from)} .. {Time(to)}");
+            text.AppendLine($"{name} ({identity}), {Time(from)} .. {Time(to)} {Clock.Zone(to)}");
             int positions = 0;
             string first = null, last = null;
             var events = new List<(long T, string Line)>();
@@ -98,7 +99,7 @@ namespace SentisWatcher.Storage
         public string Grid(long grid, string name, long from, long to, int maxEvents)
         {
             var text = new StringBuilder();
-            text.AppendLine($"{name} ({grid}), {Time(from)} .. {Time(to)}");
+            text.AppendLine($"{name} ({grid}), {Time(from)} .. {Time(to)} {Clock.Zone(to)}");
             int positions = 0;
             string first = null, last = null;
             var events = new List<(long T, string Line)>();
@@ -172,7 +173,7 @@ namespace SentisWatcher.Storage
                 }
             string Name(long id) => names.TryGetValue(id, out var n) ? n : id.ToString();
             var text = new StringBuilder();
-            text.AppendLine($"within {radius:0} m of {x:0}:{y:0}:{z:0}, {Time(from)} .. {Time(to)}");
+            text.AppendLine($"within {radius:0} m of {x:0}:{y:0}:{z:0}, {Time(from)} .. {Time(to)} {Clock.Zone(to)}");
             text.AppendLine("players: " + (players.Count == 0 ? "none" : string.Join(", ",
                 players.OrderBy(p => p.Value.First).Select(p => $"{Name(p.Key)} {Time(p.Value.First)}..{Time(p.Value.Last)}"))));
             text.AppendLine("grids: " + (grids.Count == 0 ? "none" : string.Join(", ",
@@ -194,7 +195,7 @@ namespace SentisWatcher.Storage
                         lines.Add((r.GetInt64(0), $"{Time(r.GetInt64(0))} inv {r.GetInt64(1)} owner {r.GetInt64(2)} " +
                                                   $"volume {r.GetDouble(4):0.###}/{r.GetDouble(5):0.###}: {(r.IsDBNull(3) ? "" : r.GetString(3))}"));
             var text = new StringBuilder();
-            text.AppendLine($"inventories of {entity}, {Time(from)} .. {Time(to)}: {lines.Count} changes");
+            text.AppendLine($"inventories of {entity}, {Time(from)} .. {Time(to)} {Clock.Zone(to)}: {lines.Count} changes");
             foreach (var l in lines.Skip(Math.Max(0, lines.Count - max))) text.AppendLine(l.Item2);
             return text.ToString();
         }
@@ -207,7 +208,7 @@ namespace SentisWatcher.Storage
                 using (db)
                     AppendAlerts(db, null, from, to, lines);
             var text = new StringBuilder();
-            text.AppendLine($"alerts {Time(from)} .. {Time(to)}: {lines.Count}");
+            text.AppendLine($"alerts {Time(from)} .. {Time(to)} {Clock.Zone(to)}: {lines.Count}");
             foreach (var l in lines.OrderBy(l => l.Item1).Skip(Math.Max(0, lines.Count - max))) text.AppendLine(l.Item2);
             return text.ToString();
         }

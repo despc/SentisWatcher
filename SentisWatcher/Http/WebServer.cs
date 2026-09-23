@@ -1,0 +1,182 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Text;
+using System.Threading;
+using Newtonsoft.Json;
+using NLog;
+using SentisWatcher.Storage;
+
+namespace SentisWatcher.Web
+{
+    /// <summary>
+    /// The web view: a page (embedded in the plugin) and a read-only JSON API over the day files, on
+    /// 127.0.0.1 only. Requests are answered on the thread pool, never on the game thread.
+    /// </summary>
+    public sealed class WebServer : IDisposable
+    {
+        private static readonly Logger Log = LogManager.GetCurrentClassLogger();
+
+        private readonly HttpListener _listener = new HttpListener();
+        private readonly WebData _data;
+        private readonly Dictionary<string, string> _resources;
+        private Thread _thread;
+
+        public int Port { get; }
+        public string Url => "http://127.0.0.1:" + Port + "/";
+
+        public WebServer(WatcherStore store, int port)
+        {
+            Port = port;
+            _data = new WebData(store);
+            // the build names embedded files Web/lib\x.js: one separator
+            _resources = typeof(WebServer).Assembly.GetManifestResourceNames()
+                .Where(n => n.StartsWith("Web/"))
+                .ToDictionary(n => n.Substring(4).Replace('\\', '/'), n => n, StringComparer.OrdinalIgnoreCase);
+            _listener.Prefixes.Add(Url);
+        }
+
+        public void Start()
+        {
+            _listener.Start();
+            _thread = new Thread(Loop) { IsBackground = true, Name = "SentisWatcher web" };
+            _thread.Start();
+            Log.Info("SentisWatcher: web view at " + Url);
+        }
+
+        public void Dispose()
+        {
+            try
+            {
+                _listener.Stop();
+                _listener.Close();
+            }
+            catch (Exception)
+            {
+                // already down
+            }
+        }
+
+        private void Loop()
+        {
+            while (_listener.IsListening)
+            {
+                HttpListenerContext context;
+                try
+                {
+                    context = _listener.GetContext();
+                }
+                catch (Exception)
+                {
+                    return;     // stopped
+                }
+                ThreadPool.QueueUserWorkItem(_ => Handle(context));
+            }
+        }
+
+        private void Handle(HttpListenerContext context)
+        {
+            var response = context.Response;
+            try
+            {
+                var request = context.Request;
+                if (!IPAddress.IsLoopback(request.RemoteEndPoint.Address))
+                {
+                    Send(response, 403, "text/plain", "local only");
+                    return;
+                }
+                if (request.HttpMethod != "GET")
+                {
+                    Send(response, 405, "text/plain", "read only");
+                    return;
+                }
+                var path = request.Url.AbsolutePath.TrimEnd('/');
+                if (path.StartsWith("/api/"))
+                {
+                    var result = Api(path.Substring(5), request.QueryString);
+                    if (result == null)
+                    {
+                        Send(response, 404, "application/json", "{\"error\":\"no such call\"}");
+                        return;
+                    }
+                    response.AddHeader("Cache-Control", "no-store");
+                    Send(response, 200, "application/json", JsonConvert.SerializeObject(result));
+                    return;
+                }
+                var file = path.Length == 0 ? "index.html" : path.TrimStart('/');
+                if (!_resources.TryGetValue(file, out var resource))
+                {
+                    Send(response, 404, "text/plain", "not found");
+                    return;
+                }
+                using (var stream = typeof(WebServer).Assembly.GetManifestResourceStream(resource))
+                using (var memory = new MemoryStream())
+                {
+                    stream.CopyTo(memory);
+                    Send(response, 200, ContentType(file), memory.ToArray());
+                }
+            }
+            catch (Exception e)
+            {
+                Log.Warn(e, "SentisWatcher: web request failed");
+                try { Send(response, 500, "application/json", JsonConvert.SerializeObject(new { error = e.Message })); }
+                catch (Exception) { }
+            }
+        }
+
+        /// <summary>The API: the call's name and its query; null when there is no such call.</summary>
+        public object Api(string call, System.Collections.Specialized.NameValueCollection q)
+        {
+            long L(string name, long fallback = 0) => long.TryParse(q[name], NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : fallback;
+            double D(string name) => double.Parse(q[name] ?? "0", CultureInfo.InvariantCulture);
+            var now = Clock.Now;
+            var to = L("to", now);
+            var from = L("from", to - 3_600_000L);
+            if (to - from > 7 * 86_400_000L) from = to - 7 * 86_400_000L;     // a week at most per call
+            switch (call)
+            {
+                case "days": return _data.Days();
+                case "search": return _data.Search(q["q"] ?? "", from, to);
+                case "track": return _data.Track(q["kind"] == "grid" ? "grid" : "player", L("id"), from, to);
+                case "events": return _data.Events(L("id"), from, to);
+                case "near": return _data.Near(D("x"), D("y"), D("z"), Math.Min(D("r"), 100_000), from, to);
+                case "inventory": return _data.Inventory(q["kind"] ?? "entity", L("id"), L("t", now));
+                case "alerts": return _data.Alerts(from, to);
+                case "objects": return _data.Objects(from, to, q["q"]);
+                case "moment": return _data.Moment(L("t", now), L("window", 300_000));
+                case "activity": return _data.Activity(from, to, (int)L("buckets", 400));
+                case "world": return _data.World(L("t", now));
+                case "hotspot": return _data.Hotspot(from, to);
+                case "now": return new { now, offsetMinutes = Clock.OffsetMinutes(now), zone = Clock.Zone(now) };
+                default: return null;
+            }
+        }
+
+        private static string ContentType(string file)
+        {
+            switch (Path.GetExtension(file).ToLowerInvariant())
+            {
+                case ".html": return "text/html; charset=utf-8";
+                case ".js": return "text/javascript; charset=utf-8";
+                case ".css": return "text/css; charset=utf-8";
+                case ".txt": return "text/plain; charset=utf-8";
+                default: return "application/octet-stream";
+            }
+        }
+
+        private static void Send(HttpListenerResponse response, int status, string type, string text) =>
+            Send(response, status, type.Contains("charset") ? type : type + "; charset=utf-8", Encoding.UTF8.GetBytes(text));
+
+        private static void Send(HttpListenerResponse response, int status, string type, byte[] body)
+        {
+            response.StatusCode = status;
+            response.ContentType = type;
+            response.ContentLength64 = body.Length;
+            response.OutputStream.Write(body, 0, body.Length);
+            response.OutputStream.Close();
+        }
+    }
+}

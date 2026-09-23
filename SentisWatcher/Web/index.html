@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>SentisWatcher</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">{ "imports": { "three": "./lib/three.module.min.js" } }</script>
+</head>
+<body>
+  <header>
+    <div class="brand">SentisWatcher</div>
+    <div class="search">
+      <input id="search" type="search" placeholder="Игрок или грид: имя, steam id, id…" autocomplete="off">
+      <button id="searchOpen" class="open" title="Все игроки и гриды интервала">▾</button>
+      <div id="results" class="dropdown" hidden></div>
+    </div>
+    <label>с <input id="from" type="datetime-local" step="1"></label>
+    <label>по <input id="to" type="datetime-local" step="1"></label>
+    <span id="zone" class="utc" title="Время сервера">время сервера</span>
+    <button id="rangeBack" title="Вернуться к прошлому диапазону" hidden>↩</button>
+    <button id="reload" title="Загрузить отслеживаемых за этот интервал">Загрузить</button>
+    <button id="lastHour" title="Последний час">Час</button>
+    <button id="lastDay" title="Последние сутки">Сутки</button>
+    <button id="allRange" title="Весь записанный период (не больше недели)">Всё</button>
+    <div id="status" class="status"></div>
+  </header>
+
+  <main>
+    <div id="view">
+      <div id="hud" class="hud">
+        <div id="hudDistance"></div>
+        <div id="hudAltitude"></div>
+        <div class="scale"><div id="scaleBar" class="bar"></div><span id="scaleText"></span></div>
+      </div>
+    </div>
+    <aside>
+      <nav class="tabs">
+        <button data-tab="moment" class="active">Момент</button>
+        <button data-tab="tracked">Объекты</button>
+        <button data-tab="events">События</button>
+        <button data-tab="inventory">Инвентарь</button>
+        <button data-tab="near">Рядом</button>
+        <button data-tab="alerts">Алерты</button>
+      </nav>
+      <section id="tab-moment" class="tab active">
+        <p class="hint">Кто был где в момент ползунка (клик по шкале времени переносит момент). Строка — навести
+          камеру, «+ следить» — добавить к просмотру: трек, события, инвентарь.</p>
+        <div class="row">
+          <label>События за ± <select id="momentWindow">
+            <option value="60000">1 мин</option>
+            <option value="300000" selected>5 мин</option>
+            <option value="900000">15 мин</option>
+            <option value="3600000">1 час</option>
+          </select></label>
+          <label class="check inline"><input id="showAmbient" type="checkbox" checked> всех в 3D</label>
+          <button id="addActive" title="Добавить к просмотру до 10 самых активных">+ активных</button>
+        </div>
+        <div id="moment" class="list"></div>
+      </section>
+      <section id="tab-tracked" class="tab">
+        <p class="hint">Найдите игрока или грид в поиске сверху. Клик по объекту делает его выбранным; клик по
+          маркеру в 3D — тоже.</p>
+        <div id="tracked"></div>
+        <label class="check"><input id="follow" type="checkbox" checked> Камера следует за выбранным</label>
+        <label class="check"><input id="showEvents" type="checkbox" checked> События в 3D</label>
+        <label class="check"><input id="showPlanets" type="checkbox" checked> Планеты</label>
+      </section>
+      <section id="tab-events" class="tab">
+        <div class="row"><input id="eventFilter" type="search" placeholder="Фильтр: вид, текст…"></div>
+        <div id="events" class="list"></div>
+      </section>
+      <section id="tab-inventory" class="tab">
+        <div class="row"><input id="itemFilter" type="search" placeholder="Предмет: Iron, SteelPlate…"></div>
+        <div id="inventory"></div>
+      </section>
+      <section id="tab-near" class="tab">
+        <div class="row">
+          <label>Радиус, м <input id="nearRadius" type="number" value="1000" min="10" step="10"></label>
+          <label>± мин <input id="nearWindow" type="number" value="5" min="1"></label>
+          <button id="nearGo">Кто был рядом с выбранным</button>
+        </div>
+        <div id="near" class="list"></div>
+      </section>
+      <section id="tab-alerts" class="tab">
+        <button id="alertsGo">Показать алерты интервала</button>
+        <div id="alerts" class="list"></div>
+      </section>
+    </aside>
+  </main>
+
+  <footer>
+    <button id="play" title="Проиграть">▶</button>
+    <select id="speed" title="Скорость">
+      <option value="1">×1</option>
+      <option value="10">×10</option>
+      <option value="60" selected>×60</option>
+      <option value="600">×600</option>
+      <option value="3600">×3600</option>
+    </select>
+    <div id="clock" class="clock"></div>
+    <div class="timeline-wrap">
+      <canvas id="timeline" title="Клик — момент; протяжка — выделить диапазон; колесо — приблизить/отдалить; зажатое колесо — сдвинуть; бегунок можно тащить"></canvas>
+      <div id="rangeBar" class="rangebar" hidden>
+        <button id="rangeZoom"></button>
+        <button id="rangeCancel" title="Снять выделение">✕</button>
+      </div>
+    </div>
+  </footer>
+
+  <div id="tip" class="tip" hidden></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

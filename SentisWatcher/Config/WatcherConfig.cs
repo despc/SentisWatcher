@@ -36,5 +36,26 @@ namespace SentisWatcher.Config
             get => _databaseFolder;
             set => SetValue(ref _databaseFolder, value);
         }
+
+        private bool _webEnabled = true;
+        private int _webPort = 18950;
+
+        /// <summary>The web view of the records, on this machine only (127.0.0.1).</summary>
+        [DisplayTab(Name = "Web view enabled", GroupName = "Web view", Tab = "Web view", Order = 0,
+            Description = "A page with a 3D map, a time slider, the events and the inventories, at http://127.0.0.1:<port>/ - " +
+                          "on this machine only (use a tunnel to see it from elsewhere). Takes effect at the next server start.")]
+        public bool WebEnabled
+        {
+            get => _webEnabled;
+            set => SetValue(ref _webEnabled, value);
+        }
+
+        [DisplayTab(Name = "Web view port", GroupName = "Web view", Tab = "Web view", Order = 1,
+            Description = "The port of the web view on 127.0.0.1. Takes effect at the next server start.")]
+        public int WebPort
+        {
+            get => _webPort;
+            set => SetValue(ref _webPort, value);
+        }
     }
 }

@@ -132,6 +132,8 @@ namespace SentisWatcher.Recording
 
         private void Visit(MyEntity owner, long gridId, long ownerIdentity, long now)
         {
+            // the web view shows a block by its name; for a block, "owner" of the name is its grid
+            if (owner is MyCubeBlock named) _recorder.Name(named.EntityId, "block", named.DisplayNameText, gridId);
             for (var i = 0; i < owner.InventoryCount; i++)
             {
                 if (!(owner.GetInventory(i) is MyInventory inventory)) continue;

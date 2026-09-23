@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Sandbox.Game;
@@ -56,6 +57,12 @@ namespace SentisWatcher.Recording
                                                     m.GetParameters()[1].Name == "welderOwnerIdentId")
                            ?? throw new MissingMethodException("MySlimBlock.IncreaseMountLevel(welderOwnerIdentId)");
                 c.GetPattern(weld).Suffixes.Add(Method(typeof(RecordingPatches), nameof(WeldSuffix)));
+            });
+            PatchGuard.Run("SentisWatcher.Jump", ctx, c =>
+            {
+                var jump = Method(typeof(Sandbox.Game.GameSystems.MyGridJumpDriveSystem), "PerformJump");
+                c.GetPattern(jump).Prefixes.Add(Method(typeof(RecordingPatches), nameof(JumpPrefix)));
+                c.GetPattern(jump).Suffixes.Add(Method(typeof(RecordingPatches), nameof(JumpSuffix)));
             });
             PatchGuard.Run("SentisWatcher.Ownership", ctx, c =>
             {
@@ -157,6 +164,57 @@ namespace SentisWatcher.Recording
                 detail: names + " | " + level + (creative ? " creative" : ""));
             if (level < MyPromoteLevel.Admin && !creative)
                 Recorder.Current.Alert("paste_by_player", actor, 0, $"{Identities.NameOf(actor)} ({level}) pasted {blocks} blocks: {names}");
+        });
+
+        // ------------------------------------------------------------------ jumps
+
+        private static readonly Func<Sandbox.Game.GameSystems.MyGridJumpDriveSystem, MyCubeGrid> JumpGrid =
+            (Func<Sandbox.Game.GameSystems.MyGridJumpDriveSystem, MyCubeGrid>)Delegate.CreateDelegate(
+                typeof(Func<Sandbox.Game.GameSystems.MyGridJumpDriveSystem, MyCubeGrid>),
+                typeof(Sandbox.Game.GameSystems.MyUpdateableGridSystem).GetProperty("Grid", Any).GetGetMethod(true));
+        private static readonly FieldInfo JumpUser = typeof(Sandbox.Game.GameSystems.MyGridJumpDriveSystem).GetField("m_userId", Any);
+
+        [ThreadStatic] private static VRageMath.Vector3D? _jumpFrom;
+
+        private static void JumpPrefix(Sandbox.Game.GameSystems.MyGridJumpDriveSystem __instance)
+        {
+            _jumpFrom = null;
+            if (Recorder.Current == null) return;
+            try { _jumpFrom = JumpGrid(__instance)?.WorldMatrix.Translation; }
+            catch (Exception) { }
+        }
+
+        /// <summary>
+        /// A jump: one event about the grid (who asked for it, from where, to where, how far), and one for every
+        /// player sitting in a seat of the grid or of the grids joined to it, who went along.
+        /// </summary>
+        private static void JumpSuffix(Sandbox.Game.GameSystems.MyGridJumpDriveSystem __instance) => Recorder.Safe("jump", () =>
+        {
+            var from = _jumpFrom;
+            _jumpFrom = null;
+            var grid = JumpGrid(__instance);
+            if (!from.HasValue || grid == null) return;
+            var to = grid.WorldMatrix.Translation;
+            var distance = VRageMath.Vector3D.Distance(from.Value, to);
+            var user = JumpUser?.GetValue(__instance) is long u ? u : 0;
+            var target = string.Format(System.Globalization.CultureInfo.InvariantCulture, "to={0:0};{1:0};{2:0}", to.X, to.Y, to.Z);
+            Recorder.Current.Event("jump", user, grid.EntityId, from, distance, detail: target + " " + grid.DisplayName);
+            var group = new HashSet<MyCubeGrid>(MyCubeGridGroups.Static.Logical.GetGroup(grid)?.Nodes.Select(n => n.NodeData) ?? new[] { grid });
+            // aboard: a character in a seat of the group, or a player whose controls are a block of it (a remote
+            // control does not count: its user stays where he is)
+            var aboard = new HashSet<long>();
+            foreach (var member in group)
+                foreach (var seat in member.GetFatBlocks().OfType<Sandbox.Game.Entities.MyShipController>())
+                {
+                    var pilot = seat.Pilot?.GetPlayerIdentityId() ?? 0;
+                    if (pilot != 0) aboard.Add(pilot);
+                }
+            foreach (var player in MySession.Static.Players.GetOnlinePlayers())
+                if (player.Controller?.ControlledEntity?.Entity is MyCubeBlock block && !(block is Sandbox.Game.Entities.MyRemoteControl) &&
+                    group.Contains(block.CubeGrid) && player.Identity != null)
+                    aboard.Add(player.Identity.IdentityId);
+            foreach (var passenger in aboard)
+                Recorder.Current.Event("jump_passenger", passenger, grid.EntityId, from, distance, detail: target + " " + grid.DisplayName);
         });
 
         // ------------------------------------------------------------------ money, welding, ownership

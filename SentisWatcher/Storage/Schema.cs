@@ -7,7 +7,7 @@ namespace SentisWatcher.Storage
     /// </summary>
     public static class Schema
     {
-        public const int Version = 1;
+        public const int Version = 2;
 
         public const string Create = @"
 PRAGMA journal_mode=WAL;
@@ -55,6 +55,11 @@ CREATE TABLE IF NOT EXISTS inventories(
 CREATE INDEX IF NOT EXISTS inventories_by_entity ON inventories(entity, inv, t);
 CREATE INDEX IF NOT EXISTS inventories_by_grid ON inventories(grid, t);
 CREATE INDEX IF NOT EXISTS inventories_by_owner ON inventories(owner, t);
+
+-- the planets of the world (written at the start of a day and of a server run), for the web view's map
+CREATE TABLE IF NOT EXISTS planets(
+  id INTEGER PRIMARY KEY, name TEXT, generator TEXT, x REAL, y REAL, z REAL,
+  radius REAL, min_radius REAL, max_radius REAL, atmosphere REAL, gravity REAL, t INTEGER NOT NULL);
 
 -- anomalies, also written to the log
 CREATE TABLE IF NOT EXISTS alerts(

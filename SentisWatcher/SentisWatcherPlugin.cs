@@ -7,6 +7,7 @@ using SentisWatcher.Config;
 using SentisWatcher.GUI;
 using SentisWatcher.Recording;
 using SentisWatcher.Storage;
+using SentisWatcher.Web;
 using Torch;
 using Torch.API;
 using Torch.API.Managers;
@@ -32,6 +33,7 @@ namespace SentisWatcher
         public Sampler Sampler { get; private set; }
         public InventorySweep Sweep { get; private set; }
         private EventHooks _hooks;
+        public WebServer Web { get; private set; }
         private ConfigGUI _control;
         private string _configPath;
 
@@ -79,6 +81,19 @@ namespace SentisWatcher
             Recorder.Current = recorder;
             _hooks.Attach();
             recorder.Event("server_start", 0, 0, detail: "SentisWatcher recording");
+            if (Config.WebEnabled)
+            {
+                try
+                {
+                    Web = new WebServer(Store, Config.WebPort);
+                    Web.Start();
+                }
+                catch (Exception e)
+                {
+                    Log.Error(e, "SentisWatcher: the web view could not start on port " + Config.WebPort);
+                    Web = null;
+                }
+            }
             Log.Info("SentisWatcher: recording into " + folder + ", keeping " + Config.RetentionDays + " days");
         }
 
@@ -87,6 +102,8 @@ namespace SentisWatcher
             var recorder = Recorder.Current;
             if (recorder == null) return;
             _hooks?.Detach();
+            Web?.Dispose();
+            Web = null;
             recorder.FlushAggregates(force: true);
             recorder.Event("server_stop", 0, 0);
             Recorder.Current = null;

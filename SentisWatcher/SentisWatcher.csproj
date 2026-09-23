@@ -29,6 +29,7 @@
     <Reference Include="Torch"><HintPath>$(SeRoot)\Torch.dll</HintPath><Private>False</Private></Reference>
     <Reference Include="Torch.API"><HintPath>$(SeRoot)\Torch.API.dll</HintPath><Private>False</Private></Reference>
     <Reference Include="NLog"><HintPath>$(SeRoot)\NLog.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="Newtonsoft.Json"><HintPath>$(SeRoot)\Newtonsoft.Json.dll</HintPath><Private>False</Private></Reference>
     <!-- Game -->
     <Reference Include="HavokWrapper"><HintPath>$(SeDs)\HavokWrapper.dll</HintPath><Private>False</Private></Reference>
     <Reference Include="ProtoBuf.Net"><HintPath>$(SeDs)\ProtoBuf.Net.dll</HintPath><Private>False</Private></Reference>
@@ -53,6 +54,8 @@
 
   <ItemGroup>
     <None Include="manifest.xml" CopyToOutputDirectory="PreserveNewest" />
+    <!-- the web view's page, served from the plugin itself -->
+    <EmbeddedResource Include="Web\**\*" LogicalName="Web/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
   <!--

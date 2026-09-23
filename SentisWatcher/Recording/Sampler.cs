@@ -26,6 +26,7 @@ namespace SentisWatcher.Recording
         private readonly Recorder _recorder;
         private readonly Dictionary<long, PlayerState> _players = new Dictionary<long, PlayerState>();
         private readonly Dictionary<long, GridState> _grids = new Dictionary<long, GridState>();
+        private readonly Dictionary<long, long> _characters = new Dictionary<long, long>();
         private MyCubeGrid[] _pass = new MyCubeGrid[0];
         private int _cursor;
         private long _passStarted;
@@ -43,10 +44,11 @@ namespace SentisWatcher.Recording
             var today = DateTime.UtcNow.Date;
             if (today != _day)
             {
-                // a new day file: everybody is written again
+                // a new day file: everybody is written again, and the planets
                 _day = today;
                 _players.Clear();
                 _grids.Clear();
+                Recorder.Safe("world", _recorder.World);
             }
             if (++_frame % PlayerEveryFrames == 0) SamplePlayers();
             SampleGrids();
@@ -74,12 +76,37 @@ namespace SentisWatcher.Recording
                 };
                 _recorder.Name(identity, "player", player.DisplayName, 0, player.Id.SteamId);
                 var last = _players.TryGetValue(identity, out var l) ? l : (PlayerState?)null;
+                Transitions(identity, last, state, controlled, character);
                 if (!ChangeFilter.PlayerChanged(last, state)) continue;
                 _players[identity] = state;
                 var v = (grid?.Physics ?? character?.Physics)?.LinearVelocity ?? Vector3.Zero;
                 var p = state.Position;
                 _recorder.Store.Add(new Row(Table.PlayerPos, now, now, identity, p.X, p.Y, p.Z, (double)v.X, (double)v.Y, (double)v.Z,
                     (double)state.Health, state.Controlled, state.Grid));
+            }
+        }
+
+        /// <summary>
+        /// What a player did that a position does not say: took or left the controls of a cockpit, a remote,
+        /// a turret; got a new character (respawned).
+        /// </summary>
+        private void Transitions(long identity, PlayerState? last, PlayerState now, MyEntity controlled, MyCharacter character)
+        {
+            if (character != null)
+            {
+                if (_characters.TryGetValue(identity, out var was) && was != character.EntityId)
+                    _recorder.Event("spawn", identity, character.EntityId, now.Position, detail: "new character (was " + was + ")");
+                _characters[identity] = character.EntityId;
+            }
+            if (!last.HasValue || last.Value.Controlled == now.Controlled) return;
+            if (last.Value.Controlled != 0)
+                _recorder.Event("control_leave", identity, last.Value.Grid != 0 ? last.Value.Grid : last.Value.Controlled, now.Position,
+                    detail: "left " + last.Value.Controlled);
+            if (now.Controlled != 0)
+            {
+                var block = controlled as MyCubeBlock;
+                _recorder.Event("control", identity, now.Grid != 0 ? now.Grid : now.Controlled, now.Position,
+                    detail: block != null ? block.DisplayNameText + " on " + block.CubeGrid.DisplayName : controlled?.DisplayName);
             }
         }
 

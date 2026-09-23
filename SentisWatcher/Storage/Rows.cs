@@ -11,6 +11,8 @@ namespace SentisWatcher.Storage
         Events,
         Inventories,
         Alerts,
+        Planets,
+        Meta,
     }
 
     /// <summary>
@@ -47,6 +49,8 @@ namespace SentisWatcher.Storage
                 case Table.Events: return new[] { "t", "kind", "actor", "entity", "x", "y", "z", "amount", "count", "detail" };
                 case Table.Inventories: return new[] { "t", "entity", "inv", "grid", "owner", "items", "volume", "max_volume" };
                 case Table.Alerts: return new[] { "t", "kind", "actor", "entity", "detail" };
+                case Table.Planets: return new[] { "id", "name", "generator", "x", "y", "z", "radius", "min_radius", "max_radius", "atmosphere", "gravity", "t" };
+                case Table.Meta: return new[] { "key", "value" };
                 default: throw new ArgumentOutOfRangeException(nameof(table));
             }
         }
@@ -61,6 +65,8 @@ namespace SentisWatcher.Storage
                 case Table.Events: return "events";
                 case Table.Inventories: return "inventories";
                 case Table.Alerts: return "alerts";
+                case Table.Planets: return "planets";
+                case Table.Meta: return "meta";
                 default: throw new ArgumentOutOfRangeException(nameof(table));
             }
         }
@@ -68,7 +74,7 @@ namespace SentisWatcher.Storage
         public static string Insert(Table table)
         {
             var columns = Of(table);
-            var verb = table == Table.Names ? "INSERT OR REPLACE" : "INSERT";
+            var verb = table == Table.Names || table == Table.Planets || table == Table.Meta ? "INSERT OR REPLACE" : "INSERT";
             return verb + " INTO " + TableName(table) + "(" + string.Join(",", columns) + ") VALUES(@" +
                    string.Join(",@", columns) + ")";
         }
@@ -87,5 +93,18 @@ namespace SentisWatcher.Storage
 
         /// <summary>The UTC day of the time, the day file it belongs to.</summary>
         public static DateTime Day(long ms) => FromMs(ms).Date;
+
+        /// <summary>The server's time zone offset at that time, in minutes.</summary>
+        public static int OffsetMinutes(long ms) => (int)TimeZoneInfo.Local.GetUtcOffset(FromMs(ms)).TotalMinutes;
+
+        /// <summary>The server's time zone as people read it: UTC+03:00.</summary>
+        public static string Zone(long ms)
+        {
+            var offset = TimeZoneInfo.Local.GetUtcOffset(FromMs(ms));
+            return "UTC" + (offset < TimeSpan.Zero ? "-" : "+") + offset.ToString("hh\\:mm");
+        }
+
+        /// <summary>The time on the server's clock.</summary>
+        public static DateTime Local(long ms) => FromMs(ms).ToLocalTime();
     }
 }

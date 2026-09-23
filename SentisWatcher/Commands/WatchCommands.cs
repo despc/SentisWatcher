@@ -12,8 +12,8 @@ using VRage.Game.ModAPI;
 namespace SentisWatcher.Commands
 {
     /// <summary>
-    /// !watch - what the records say, for admins. The answer is read on a thread of its own, sent to the chat
-    /// and also saved as a text file next to the day files (a long answer is cut in the chat).
+    /// !watch - what the records say, for admins, in the server's time. The answer is read on a thread of its
+    /// own, sent to the chat and also saved as a text file next to the day files (a long answer is cut in the chat).
     /// </summary>
     [Category("watch")]
     public class WatchCommands : CommandModule

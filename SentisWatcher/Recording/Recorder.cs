@@ -74,6 +74,27 @@ namespace SentisWatcher.Recording
                     a.Position.X, a.Position.Y, a.Position.Z, a.Amount, a.Count, a.Detail));
         }
 
+        /// <summary>
+        /// The planets of the world and the direction to the sun, into the day file (game thread): the web
+        /// view draws them to scale.
+        /// </summary>
+        public void World()
+        {
+            var now = Clock.Now;
+            foreach (var entity in Sandbox.Game.Entities.MyEntities.GetEntities())
+            {
+                if (!(entity is Sandbox.Game.Entities.MyPlanet planet) || planet.MarkedForClose) continue;
+                var p = planet.PositionComp.GetPosition();
+                var gravity = (planet.Components.Get<Sandbox.Game.Entities.MyGravityProviderComponent>() as Sandbox.Game.Entities.MySphericalNaturalGravityComponent)?.GravityLimit ?? 0f;
+                Store.Add(new Row(Table.Planets, now, planet.EntityId, planet.StorageName, planet.Generator?.Id.SubtypeName,
+                    p.X, p.Y, p.Z, (double)planet.AverageRadius, (double)planet.MinimumRadius, (double)planet.MaximumRadius,
+                    // where the air ends, as the game counts it (GetAirDensity), not the rendered shell (AtmosphereRadius)
+                    planet.HasAtmosphere ? (double)(planet.AverageRadius + planet.AtmosphereAltitude) : 0.0, (double)gravity, now));
+            }
+            var sun = Sandbox.Game.World.MySector.DirectionToSunNormalized;
+            Store.Add(new Row(Table.Meta, now, "sun", string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0},{1},{2}", sun.X, sun.Y, sun.Z)));
+        }
+
         public static void Safe(string what, Action action)
         {
             try
