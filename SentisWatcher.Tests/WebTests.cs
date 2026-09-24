@@ -22,6 +22,10 @@ namespace SentisWatcher.Tests
         private const long Cargo = 139215407649218072;
         private const long Vault = 139215407649218999;
         private const long Base = 105745445387715999;       // the vault's grid
+        private const long Body = 139215407649218100;       // the player's character
+        private const long OldBody = 139215407649218101;    // one it left behind, never named
+        private const long Kit = 139215407649218102;        // a block with no name of its own
+        private const long Rover = 105745445387715888;      // the kit's grid
 
         private static long At(int minute) => Clock.ToMs(new DateTime(2026, 9, 23, 10, minute, 0, DateTimeKind.Utc));
 
@@ -49,6 +53,13 @@ namespace SentisWatcher.Tests
             writer.Add(new Row(Table.Events, At(5), At(5), "damage", 0L, 0L, 5100.0, 5100.0, 5100.0, 10.0, 1, "Bullet"));
             writer.Add(new Row(Table.Events, At(5), At(5) + 1000, "damage", 0L, 0L, 5300.0, 5300.0, 5300.0, 10.0, 1, "Bullet"));
             writer.Add(new Row(Table.Events, At(5), At(5) + 2000, "damage", 0L, 0L, 55000.0, 0.0, 0.0, 10.0, 1, "Bullet"));
+            // the player's bodies (inventories on no grid): one named as a character, one recorded before
+            // characters were named; a kit with no name of its own (an empty name in the day file)
+            writer.Add(new Row(Table.Names, At(0), Body, "character", "Tester", Player, null, At(0)));
+            writer.Add(new Row(Table.Inventories, At(2), At(2), Body, 0, null, Player, "Ore/Stone:5", 0.1, 1.0));
+            writer.Add(new Row(Table.Inventories, At(2), At(2), OldBody, 0, null, Player, "Ore/Stone:7", 0.1, 1.0));
+            writer.Add(new Row(Table.Names, At(0), Kit, "block", "", Rover, null, At(0)));
+            writer.Add(new Row(Table.Inventories, At(2), At(2), Kit, 1, Rover, Player, "Ingot/Iron:3", 0.1, 1.0));
             writer.Dispose();
             _store = new WatcherStore(_folder, () => 14);
         }
@@ -292,6 +303,55 @@ namespace SentisWatcher.Tests
             Assert.Single(Call("holdings", ("kind", "player"), ("id", Player), ("t", At(6)))["inventories"].Where(i => (string)i["entity"] == Vault.ToString()));
             Assert.Empty(Call("holdings", ("kind", "player"), ("id", Player), ("t", At(8)))["inventories"].Where(i => (string)i["entity"] == Vault.ToString()));
             Assert.Single(Call("holdings", ("kind", "grid"), ("id", Base), ("t", At(8)))["inventories"]);
+        }
+
+        [Fact]
+        public void A_players_bodies_are_marked_and_an_empty_name_is_no_name()
+        {
+            var held = Call("holdings", ("kind", "player"), ("id", Player), ("t", At(5)));
+            var inventories = held["inventories"];
+            // no running game in the test: no body is the player's current one
+            Assert.Equal("old", (string)inventories.Single(i => (string)i["entity"] == Body.ToString())["body"]);
+            Assert.Equal("old", (string)inventories.Single(i => (string)i["entity"] == OldBody.ToString())["body"]);
+            var kit = inventories.Single(i => (string)i["entity"] == Kit.ToString());
+            Assert.Null((string)kit["body"]);
+            Assert.Equal(1, (int)kit["inv"]);
+            Assert.Equal("Tester", (string)held["names"][Body.ToString()]);
+            Assert.Null(held["names"][Kit.ToString()]);
+        }
+
+        [Fact]
+        public void The_last_run_leaves_what_was_not_gone_by_the_later_day()
+        {
+            var folder = Path.Combine(Path.GetTempPath(), "watcher-last-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var yesterday = Clock.ToMs(new DateTime(2026, 9, 22, 20, 0, 0, DateTimeKind.Utc));
+                using (var writer = new WatcherStore(folder, () => 14))
+                {
+                    writer.Add(new Row(Table.Inventories, yesterday, yesterday, OldBody, 0, null, Player, "Ore/Stone:7", 0.1, 1.0));
+                    writer.Add(new Row(Table.Inventories, yesterday, yesterday, Cargo, 0, Grid, Player, "Ore/Iron:1", 0.1, 1.0));
+                    writer.Add(new Row(Table.Inventories, At(1), At(1), Body, 0, null, Player, "Ore/Stone:5", 0.1, 1.0));
+                    writer.Add(new Row(Table.Inventories, At(2), At(2), Body, 0, null, Player, "Ore/Stone:6", 0.1, 1.0));
+                    writer.Add(new Row(Table.Inventories, At(1), At(1), Kit, 1, Rover, Player, "Ingot/Iron:3", 0.1, 1.0));
+                    // the cargo went away today: its last row has no items
+                    writer.Add(new Row(Table.Inventories, At(3), At(3), Cargo, 0, Grid, Player, null, 0.0, 0.0, "gone|Ore/Iron:-1"));
+                }
+                using (var reader = new WatcherStore(folder, () => 14))
+                {
+                    var held = reader.LastHeld(new DateTime(2026, 9, 22), new DateTime(2026, 9, 23)).ToDictionary(h => (h.Entity, h.Inv));
+                    Assert.Equal(3, held.Count);
+                    Assert.Equal("Ore/Stone:6", held[(Body, 0)].Items);
+                    Assert.Equal("Ore/Stone:7", held[(OldBody, 0)].Items);
+                    Assert.Equal(Rover, held[(Kit, 1)].Grid);
+                    Assert.Equal(Player, held[(Kit, 1)].Owner);
+                    Assert.False(held.ContainsKey((Cargo, 0)));
+                }
+            }
+            finally
+            {
+                try { Directory.Delete(folder, true); } catch { }
+            }
         }
 
         [Fact]

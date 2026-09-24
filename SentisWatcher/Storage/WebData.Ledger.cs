@@ -178,9 +178,11 @@ namespace SentisWatcher.Storage
 
             bool Member(HeldRow row, long entity) => kind == "grid" ? row.Grid == id : kind == "entity" ? entity == id : row.Owner == id;
             var held = rows.Where(p => p.Value[0].Items != null && Member(p.Value[0], p.Key.Entity)).ToList();
-            var names = Names(held.Select(p => p.Key.Entity).Concat(held.Select(p => p.Value[0].Grid)).Append(id), yesterday, at);
+            // the owners too: a body left behind that nothing names goes by its player's name
+            var names = Names(held.Select(p => p.Key.Entity).Concat(held.Select(p => p.Value[0].Grid)).Concat(held.Select(p => p.Value[0].Owner)).Append(id), yesterday, at);
             string Key(long v) => v.ToString(CultureInfo.InvariantCulture);
             string NameOf(long v) => names.TryGetValue(Key(v), out var n) ? n : "";
+            var kinds = Kinds(held.Where(p => p.Value[0].Grid == 0).Select(p => p.Key.Entity), yesterday, at);
             return new Dictionary<string, object>
             {
                 ["kind"] = kind,
@@ -190,9 +192,13 @@ namespace SentisWatcher.Storage
                     .Select(p =>
                     {
                         var now = p.Value[0];
+                        // on no grid: a character's own inventory - the player's body now, or one it left behind
+                        string body = null;
+                        if (now.Grid == 0 && now.Owner != 0 && kinds.TryGetValue(p.Key.Entity, out var what) && what == "character")
+                            body = LiveBody != null && LiveBody(now.Owner) == p.Key.Entity ? "current" : "old";
                         return new Dictionary<string, object>
                         {
-                            ["entity"] = Key(p.Key.Entity), ["inv"] = p.Key.Inv, ["t"] = now.T,
+                            ["entity"] = Key(p.Key.Entity), ["inv"] = p.Key.Inv, ["t"] = now.T, ["body"] = body,
                             ["grid"] = now.Grid == 0 ? null : Key(now.Grid), ["owner"] = Key(now.Owner),
                             ["volume"] = now.Volume, ["max"] = now.Max,
                             ["items"] = HeldItems(now.Items),
@@ -203,6 +209,27 @@ namespace SentisWatcher.Storage
                     }).ToList(),
                 ["names"] = names,
             };
+        }
+
+        /// <summary>
+        /// What sort each id is ("character", "block", "grid", "player") as the day files name it; a body not
+        /// named yet (recorded before characters were named) is a character when the running game says so.
+        /// </summary>
+        private Dictionary<long, string> Kinds(IEnumerable<long> ids, long from, long to)
+        {
+            var wanted = new HashSet<long>(ids.Where(i => i != 0));
+            var kinds = new Dictionary<long, string>();
+            if (wanted.Count == 0) return kinds;
+            foreach (var db in Days(from, to))
+                using (db)
+                using (var cmd = Command(db, "SELECT id, kind FROM names WHERE id IN (" + string.Join(",", wanted) + ")"))
+                using (var r = cmd.ExecuteReader())
+                    while (r.Read())
+                        if (!r.IsDBNull(1)) kinds[r.GetInt64(0)] = r.GetString(1);
+            // an inventory on no grid that nothing names is a character's (the only such owners the sweep visits)
+            foreach (var id in wanted)
+                if (!kinds.ContainsKey(id)) kinds[id] = "character";
+            return kinds;
         }
 
         private sealed class HeldRow

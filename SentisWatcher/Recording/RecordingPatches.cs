@@ -50,6 +50,12 @@ namespace SentisWatcher.Recording
                     null, new[] { typeof(long), typeof(long) }, null) ?? throw new MissingMethodException("MyBankingSystem.ChangeBalance");
                 c.GetPattern(balance).Suffixes.Add(Method(typeof(RecordingPatches), nameof(BalanceSuffix)));
             });
+            PatchGuard.Run("SentisWatcher.Drill", ctx, c =>
+            {
+                // a hand drill's cut and a ship drill's both end here, with what came out of the ground
+                var results = Method(typeof(Sandbox.Game.Weapons.MyDrillBase), "OnDrillResults");
+                c.GetPattern(results).Suffixes.Add(Method(typeof(RecordingPatches), nameof(DrillSuffix)));
+            });
             PatchGuard.Run("SentisWatcher.Weld", ctx, c =>
             {
                 var weld = typeof(MySlimBlock).GetMethods(BindingFlags.Instance | BindingFlags.Public)
@@ -227,6 +233,43 @@ namespace SentisWatcher.Recording
         private static void WeldSuffix(MySlimBlock __instance, float welderMountAmount, long welderOwnerIdentId) => Recorder.Safe("weld", () =>
             Recorder.Current.Aggregator.Add(Storage.Clock.Now, "weld", welderOwnerIdentId, __instance.CubeGrid.EntityId, null,
                 welderMountAmount, __instance.CubeGrid.GridIntegerToWorld(__instance.Position)));
+
+        private static readonly FieldInfo DrillEntity = typeof(Sandbox.Game.Weapons.MyDrillBase).GetField("m_drillEntity", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        /// <summary>
+        /// Voxels drilled: by whom (the hand drill's holder, a ship drill's owner), on what (the character, the
+        /// grid), the ore that most of it was, and how much ground in cubic metres; the drill's secondary
+        /// action (clearing, nothing kept) is marked as such.
+        /// </summary>
+        private static void DrillSuffix(Sandbox.Game.Weapons.MyDrillBase __instance, Dictionary<VRage.Game.MyVoxelMaterialDefinition, int> materials,
+            VRageMath.Vector3D hitPosition, bool collectOre) => Recorder.Safe("drill", () =>
+        {
+            if (materials == null || materials.Count == 0) return;
+            var removed = 0;
+            var most = 0;
+            string ore = null;
+            foreach (var material in materials)
+            {
+                removed += material.Value;
+                if (material.Value <= most) continue;
+                most = material.Value;
+                ore = string.IsNullOrEmpty(material.Key.MinedOre) ? material.Key.Id.SubtypeName : material.Key.MinedOre;
+            }
+            if (removed <= 0) return;
+            long actor = 0, entity = 0;
+            switch (DrillEntity?.GetValue(__instance))
+            {
+                case Sandbox.Game.Weapons.MyHandDrill hand:
+                    actor = hand.OwnerIdentityId;
+                    entity = hand.Owner?.EntityId ?? 0;
+                    break;
+                case MyCubeBlock block:
+                    actor = block.OwnerId;
+                    entity = block.CubeGrid.EntityId;
+                    break;
+            }
+            Recorder.Current.Aggregator.Add(Storage.Clock.Now, "drill", actor, entity, (collectOre ? "" : "clearing ") + ore, removed / 255.0, hitPosition);
+        });
 
         private static void OwnershipSuffix(MyCubeGrid __instance, long playerId, MyOwnershipShareModeEnum shareMode) => Recorder.Safe("ownership", () =>
             Recorder.Current.Event("grid_ownership", playerId, __instance.EntityId, __instance.PositionComp.GetPosition(),

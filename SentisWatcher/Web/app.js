@@ -12,6 +12,7 @@ const KIND_COLORS = {
   chat: '#bdc3c7', join: '#aab7b8', leave: '#7f8c8d', grid_added: '#48c9b0', grid_removed: '#16a085',
   grid_owner: '#af7ac5', grid_ownership: '#bb8fce', faction: '#d7bde2',
   jump: '#c39bd3', jump_passenger: '#a569bd', control: '#76d7c4', control_leave: '#45b39d', spawn: '#f7dc6f',
+  drill: '#b9770e',
 };
 
 // a jump: where it went, from the event's detail ("to=x;y;z ...")
@@ -48,6 +49,7 @@ const KIND_NAMES = {
   chat: 'чат', join: 'вход', leave: 'выход', grid_added: 'грид появился', grid_removed: 'грид исчез',
   grid_owner: 'смена владельца', grid_ownership: 'передача грида', faction: 'фракция', jump: 'прыжок',
   jump_passenger: 'прыжок пассажиром', control: 'сел за управление', control_leave: 'вышел из управления', spawn: 'новый персонаж',
+  drill: 'бурение',
 };
 
 // what the map shows: objects (markers, tracks, labels), events (their dots and jumps), or both
@@ -107,7 +109,9 @@ function world(x, y, z) {
 // ------------------------------------------------------------------ 3D scene
 
 const view = $('#view');
-const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+// a logarithmic depth buffer: a metre from the camera and a planet a million km off both keep their order
+// (the surface, the detail patch over it and a base standing on it do not flicker into each other)
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, logarithmicDepthBuffer: true });
 renderer.setPixelRatio(window.devicePixelRatio);
 view.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
@@ -116,7 +120,11 @@ const camera = new THREE.PerspectiveCamera(55, 1, 1, 2e9);
 camera.position.set(300, 250, 300);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
-scene.add(new THREE.AmbientLight(0xffffff, 0.22));
+scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+// a light from the camera, softer than the sun: the ground keeps its shape on the night side too (slopes
+// facing away come out darker), the way a map is read rather than how the game lights it
+const headlight = new THREE.DirectionalLight(0xffffff, 0.9);
+scene.add(headlight, headlight.target);
 // the sun: its direction comes with the world (/api/world)
 const sun = new THREE.DirectionalLight(0xfff4e0, 2.2);
 sun.position.set(0.4, 0.8, 0.45);
@@ -215,9 +223,6 @@ const sunOnSky = new THREE.Group();
   sunOnSky.renderOrder = -9;
   sky.add(sunOnSky);
 })();
-const helper = new THREE.GridHelper(2000, 20, 0x2c323c, 0x1f242c);
-scene.add(helper);
-scene.add(new THREE.AxesHelper(50));
 
 const labels = document.createElement('div');
 view.appendChild(labels);
@@ -553,7 +558,6 @@ function focusSelected() {
   if (offset.length() > 20000 || offset.length() < 5) offset.set(250, 200, 250);
   controls.target.copy(s.pos);
   camera.position.copy(s.pos).add(offset);
-  helper.position.set(s.pos.x, s.pos.y, s.pos.z);
 }
 
 // ------------------------------------------------------------------ planets, to scale
@@ -564,19 +568,79 @@ const planetLabels = [];
 let worldInfo = null;           // { planets, sun } of the range
 let planetsBuiltFor = null;     // the origin they were built around
 
+// Each planet's colours: [low ground, middle, high ground, peaks, rock of steep faces], its air, and whether
+// its peaks and poles carry snow. Simplified, but enough to read the land: valleys, slopes, cliffs, ice.
 const PLANET_STYLE = [
-  [/earth/i, ['#3d6b47', '#2b5f93', '#8c7d57'], '#8fc3ff', true],
-  [/moon/i, ['#8a8a8a', '#6a6a6a', '#a8a8a8'], null, false],
-  [/mars/i, ['#a4552f', '#7b3a22', '#c98052'], '#e7a57a', true],
-  [/europa/i, ['#cfe1ee', '#a6c1d4', '#f0f7fb'], '#d8ecff', false],
-  [/alien/i, ['#6b4e94', '#4c7a5b', '#9072ba'], '#c3a4ff', false],
-  [/titan/i, ['#c49856', '#9a7341', '#e2c184'], '#ffe2a8', false],
-  [/triton/i, ['#a8c6d5', '#86a3b2', '#dbeff8'], '#cfe8ff', true],
-  [/pertam/i, ['#b3895a', '#8b6944', '#d3ab7a'], '#ffd9a8', false],
+  [/earth/i, ['#557d3b', '#6f8a47', '#8c8467', '#b7b1a6', '#77716a'], '#8fc3ff', true],
+  [/moon/i, ['#8c8c8c', '#7a7a7a', '#9d9d9d', '#b4b4b4', '#6a6a6a'], null, false],
+  [/mars/i, ['#a4552f', '#b76a3d', '#c98052', '#d9a07a', '#7b3a22'], '#e7a57a', true],
+  [/europa/i, ['#b9cfdd', '#cfe1ee', '#e3eef6', '#f7fbfd', '#98b2c4'], '#d8ecff', false],
+  [/alien/i, ['#4c7a5b', '#6b4e94', '#8466ad', '#a08bc4', '#3f3350'], '#c3a4ff', false],
+  [/titan/i, ['#9a7341', '#b08650', '#c49856', '#e2c184', '#6f5430'], '#ffe2a8', false],
+  [/triton/i, ['#86a3b2', '#9bb7c6', '#b4ccd8', '#dbeff8', '#667f8c'], '#cfe8ff', true],
+  [/pertam/i, ['#8b6944', '#a37d52', '#b3895a', '#d3ab7a', '#6a4f33'], '#ffd9a8', false],
 ];
 function planetStyle(p) {
   const key = (p.generator || '') + ' ' + (p.name || '');
-  return PLANET_STYLE.find(([re]) => re.test(key)) || [null, ['#7d7d85', '#5f5f68', '#9a9aa2'], '#bcc6d8', false];
+  return PLANET_STYLE.find(([re]) => re.test(key)) || [null, ['#6f6f77', '#7d7d85', '#8d8d95', '#a4a4ac', '#5a5a62'], '#bcc6d8', false];
+}
+
+// The colour of the ground: by height (0 the lowest of the planet, 1 the highest), turning to rock where it is
+// steep (up: how level it is, 1 flat) and to snow on the peaks of a snowy planet; a little noise so that it
+// is not flat colour.
+const _c = [new THREE.Color(), new THREE.Color()];
+function groundColor(style, f, level, noise, out) {
+  const [, colors, , caps] = style;
+  const bands = [0, 0.3, 0.6, 0.85, 1];
+  let k = 0;
+  while (k < 3 && f > bands[k + 1]) k++;
+  const u = Math.min(1, Math.max(0, (f - bands[k]) / (bands[k + 1] - bands[k])));
+  out.set(colors[Math.min(k, 3)]).lerp(_c[0].set(colors[Math.min(k + 1, 3)]), u);
+  const steep = Math.min(1, Math.max(0, (0.93 - level) * 5));
+  if (steep > 0) out.lerp(_c[1].set(colors[4]), steep);
+  if (caps && f > 0.8 && level > 0.8) out.lerp(_c[1].set('#f4f7fa'), Math.min(1, (f - 0.8) * 5) * (level - 0.8) * 5);
+  out.multiplyScalar(0.92 + noise * 0.16);
+  return out;
+}
+const hash01 = (i) => { const x = Math.sin(i * 12.9898) * 43758.5453; return x - Math.floor(x); };
+
+// Fine detail over the colours: a small grey noise tile repeated many times, so the ground reads as ground
+// close up (a flat colour gives no sense of distance or motion).
+let detailTexture = null;
+function groundDetail() {
+  if (detailTexture) return detailTexture;
+  const size = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d');
+  const img = g.createImageData(size, size);
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  // value noise at a few scales, tiling
+  const layers = [8, 16, 32, 64].map((cells) => {
+    const grid = Array.from({ length: cells * cells }, rnd);
+    return (x, y) => {
+      const fx = x / size * cells, fy = y / size * cells;
+      const x0 = Math.floor(fx), y0 = Math.floor(fy), tx = fx - x0, ty = fy - y0;
+      const at = (i, j) => grid[((j + cells) % cells) * cells + ((i + cells) % cells)];
+      const sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty);
+      return (at(x0, y0) * (1 - sx) + at(x0 + 1, y0) * sx) * (1 - sy) + (at(x0, y0 + 1) * (1 - sx) + at(x0 + 1, y0 + 1) * sx) * sy;
+    };
+  });
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const v = 0.45 * layers[0](x, y) + 0.25 * layers[1](x, y) + 0.18 * layers[2](x, y) + 0.12 * layers[3](x, y);
+      const grey = Math.round(255 * (0.72 + 0.28 * v));
+      const o = (y * size + x) * 4;
+      img.data[o] = img.data[o + 1] = img.data[o + 2] = grey;
+      img.data[o + 3] = 255;
+    }
+  g.putImageData(img, 0, 0);
+  detailTexture = new THREE.CanvasTexture(c);
+  detailTexture.wrapS = detailTexture.wrapT = THREE.RepeatWrapping;
+  detailTexture.colorSpace = THREE.SRGBColorSpace;
+  detailTexture.anisotropy = 8;
+  return detailTexture;
 }
 
 function planetTexture(colors, caps, seedFrom) {
@@ -623,6 +687,7 @@ async function loadWorld() {
 function buildPlanets() {
   if (!worldInfo || !state.origin || planetsBuiltFor === state.origin) return;
   planetsBuiltFor = state.origin;
+  dropPatch();
   for (const m of [...planetGroup.children]) { m.geometry.dispose(); m.material.map?.dispose(); m.material.dispose(); }
   planetGroup.clear();
   for (const l of planetLabels) l.el.remove();
@@ -635,6 +700,7 @@ function buildPlanets() {
       new THREE.MeshStandardMaterial({ map: planetTexture(colors, caps, Number(String(p.id).slice(-6))), roughness: 1, metalness: 0 }));
     body.position.copy(pos);
     planetGroup.add(body);
+    applyRelief(body, p);
     // where the air ends (the game's own boundary: average radius + atmosphere altitude)
     if (p.atmosphere > r) {
       const shell = new THREE.Mesh(new THREE.SphereGeometry(p.atmosphere, 96, 48),
@@ -650,7 +716,160 @@ function buildPlanets() {
   }
   planetGroup.visible = $('#showPlanets').checked;
 }
-$('#showPlanets').addEventListener('change', () => { planetGroup.visible = $('#showPlanets').checked; });
+// The planet with its real surface: the server reads the planet's heights for the vertices of a sphere
+// (Relief.cs: the same directions, in the same order as three.js lays them out) and the sphere's vertices
+// are moved to them - a base on a hillside then sits on the ground instead of over a smooth ball of the
+// average radius. Kept per planet; a planet the running game does not have stays a sphere.
+const reliefs = {};
+async function applyRelief(body, p) {
+  let relief = reliefs[p.id];
+  if (relief === undefined) {
+    relief = reliefs[p.id] = api('relief', { id: p.id, name: p.name }).catch(() => null);
+  }
+  relief = await relief;
+  if (!relief || !relief.relief || body.parent !== planetGroup) return;
+  const raw = atob(relief.relief);
+  const heights = new Int16Array(raw.length / 2);
+  for (let i = 0; i < heights.length; i++) heights[i] = (raw.charCodeAt(2 * i) | (raw.charCodeAt(2 * i + 1) << 8)) << 16 >> 16;
+  const geometry = new THREE.SphereGeometry(1, relief.w, relief.h);
+  const at = geometry.attributes.position;
+  if (at.count !== heights.length) { geometry.dispose(); return; }
+  const v = new THREE.Vector3();
+  let low = Infinity, high = -Infinity;
+  for (let i = 0; i < heights.length; i++) { low = Math.min(low, heights[i]); high = Math.max(high, heights[i]); }
+  for (let i = 0; i < at.count; i++) {
+    v.fromBufferAttribute(at, i).normalize().multiplyScalar(relief.base + heights[i]);
+    at.setXYZ(i, v.x, v.y, v.z);
+  }
+  geometry.computeVertexNormals();
+  // coloured by height and steepness, with the fine detail tile over it (about a kilometre a tile)
+  const style = planetStyle(p);
+  const colors = new Float32Array(at.count * 3);
+  const normal = geometry.attributes.normal;
+  const n = new THREE.Vector3(), c = new THREE.Color();
+  for (let i = 0; i < at.count; i++) {
+    v.fromBufferAttribute(at, i).normalize();
+    n.fromBufferAttribute(normal, i);
+    groundColor(style, (heights[i] - low) / Math.max(1, high - low), n.dot(v), hash01(i), c);
+    colors[3 * i] = c.r; colors[3 * i + 1] = c.g; colors[3 * i + 2] = c.b;
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const detail = groundDetail().clone();
+  detail.needsUpdate = true;
+  detail.repeat.set(relief.w, relief.h / 2);
+  body.material.map?.dispose();
+  body.material.dispose();
+  body.material = new THREE.MeshStandardMaterial({ vertexColors: true, map: detail, roughness: 1, metalness: 0 });
+  body.geometry.dispose();
+  body.geometry = geometry;
+  body.userData.relief = { planet: p, base: relief.base, low, high, style };
+}
+
+// ------------------------------------------------------------------ the ground close up
+
+// Near a planet the sphere's vertices are hundreds of metres apart: the ground around where the camera looks
+// is asked of the server in detail (Relief.Patch, 129 x 129 over a square a few times the camera's height) and
+// drawn over it, coloured the same way. Asked again when the view moves off it or the height changes much.
+const patchGroup = new THREE.Group();
+scene.add(patchGroup);
+let patch = null;            // { planetId, x, y, z (world, the centre asked), size, mesh }
+let patchRequest = 0, patchBusy = false, patchCheckedAt = 0;
+const PATCH_ALTITUDE = 20000, PATCH_N = 129;
+
+async function updatePatch(now) {
+  if (patchBusy || now - patchCheckedAt < 500 || !state.origin) return;
+  patchCheckedAt = now;
+  const body = planetGroup.children.find((m) => m.userData.relief &&
+    camera.position.distanceTo(m.position) - m.userData.relief.base < PATCH_ALTITUDE);
+  if (!body || !planetGroup.visible) { dropPatch(); return; }
+  const r = body.userData.relief;
+  const altitude = Math.max(50, camera.position.distanceTo(body.position) - r.base);
+  // what is looked at, down on the planet: the orbit target, or straight below the camera when that is far
+  const look = controls.target.distanceTo(camera.position) < altitude * 6 ? controls.target : camera.position;
+  const wx = look.x + state.origin.x, wy = look.y + state.origin.y, wz = look.z + state.origin.z;
+  const size = Math.min(40000, Math.max(1500, altitude * 4));
+  if (patch && patch.planetId === r.planet.id && size / patch.size < 2 && patch.size / size < 2 &&
+      Math.hypot(wx - patch.x, wy - patch.y, wz - patch.z) < patch.size / 4) return;
+  patchBusy = true;
+  const request = ++patchRequest;
+  try {
+    const data = await api('terrain', { id: r.planet.id, name: r.planet.name, x: wx, y: wy, z: wz, size: Math.round(size), n: PATCH_N });
+    if (request !== patchRequest || !data || !data.heights) return;
+    buildPatch(body, r, data, { x: wx, y: wy, z: wz, size });
+  } catch (e) {
+    // no detail then; the sphere stays
+  } finally {
+    patchBusy = false;
+  }
+}
+
+function buildPatch(body, r, data, asked) {
+  const raw = atob(data.heights);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  const heights = new Float32Array(bytes.buffer);
+  const n = data.n, size = data.size;
+  const [cx, cy, cz] = data.center, [ux, uy, uz] = data.up, [ex, ey, ez] = data.east, [nx, ny, nz] = data.north;
+  // positions relative to the patch's own middle, in doubles until then: float32 stays exact near the camera
+  const mid = heights[((n - 1) / 2) * n + (n - 1) / 2] + data.base;
+  const ox = cx + ux * mid, oy = cy + uy * mid, oz = cz + uz * mid;
+  const positions = new Float32Array(n * n * 3), uvs = new Float32Array(n * n * 2), colors = new Float32Array(n * n * 3);
+  for (let j = 0, k = 0; j < n; j++)
+    for (let i = 0; i < n; i++, k++) {
+      const a = (i / (n - 1) - 0.5) * size, b = (j / (n - 1) - 0.5) * size;
+      let dx = ux * data.base + ex * a + nx * b, dy = uy * data.base + ey * a + ny * b, dz = uz * data.base + ez * a + nz * b;
+      const len = Math.hypot(dx, dy, dz);
+      const radius = data.base + heights[k];
+      dx = dx / len * radius; dy = dy / len * radius; dz = dz / len * radius;
+      positions[3 * k] = cx + dx - ox; positions[3 * k + 1] = cy + dy - oy; positions[3 * k + 2] = cz + dz - oz;
+      // a detail tile about 25 m across
+      uvs[2 * k] = a / 25; uvs[2 * k + 1] = b / 25;
+    }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  const index = [];
+  for (let j = 0; j < n - 1; j++)
+    for (let i = 0; i < n - 1; i++) {
+      // counter-clockwise seen from above (east, north, up is right-handed): the faces look out of the planet
+      const k = j * n + i;
+      index.push(k, k + 1, k + n, k + 1, k + n + 1, k + n);
+    }
+  geometry.setIndex(index);
+  geometry.computeVertexNormals();
+  const normal = geometry.attributes.normal, v = new THREE.Vector3(), up = new THREE.Vector3(), c = new THREE.Color();
+  for (let k = 0; k < n * n; k++) {
+    up.set(positions[3 * k] + ox - cx, positions[3 * k + 1] + oy - cy, positions[3 * k + 2] + oz - cz).normalize();
+    v.fromBufferAttribute(normal, k);
+    // the same colours as the sphere's; the noise on a finer grain
+    groundColor(r.style, (heights[k] - r.low) / Math.max(1, r.high - r.low), v.dot(up), hash01(k * 7.13), c);
+    colors[3 * k] = c.r; colors[3 * k + 1] = c.g; colors[3 * k + 2] = c.b;
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  // the edges fade into the sphere below instead of ending in a step
+  const material = new THREE.MeshStandardMaterial({ vertexColors: true, map: groundDetail(), roughness: 1, metalness: 0,
+    polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.set(ox - state.origin.x, oy - state.origin.y, oz - state.origin.z);
+  dropPatch();
+  patchGroup.add(mesh);
+  // the coarse sphere sinks a little under the detail: between its far-apart vertices it can stand above
+  // the real ground of a valley and hide it
+  body.scale.setScalar((r.base - Math.min(150, asked.size / 40)) / r.base);
+  patch = { planetId: r.planet.id, x: asked.x, y: asked.y, z: asked.z, size: asked.size, mesh, body };
+}
+
+function dropPatch() {
+  if (!patch) return;
+  patchGroup.remove(patch.mesh);
+  patch.mesh.geometry.dispose();
+  patch.mesh.material.dispose();
+  patch.body.scale.setScalar(1);
+  patch = null;
+}
+$('#showPlanets').addEventListener('change', () => {
+  planetGroup.visible = patchGroup.visible = $('#showPlanets').checked;
+});
 
 // ------------------------------------------------------------------ the moment: everyone at the slider's time
 
@@ -741,7 +960,6 @@ function focusOn(pos) {
   if (offset.length() > 20000 || offset.length() < 5) offset.set(300, 250, 300);
   controls.target.copy(pos);
   camera.position.copy(pos).add(offset);
-  helper.position.copy(pos);
   $('#follow').checked = false;
 }
 
@@ -945,9 +1163,13 @@ function eventHtml(e, track) {
     if (e.amount) parts.push('на ' + distanceText(e.amount));
     const to = jumpTarget(e);
     if (to) parts.push(`<div class="detail">куда: ${num(to[0], 0)} : ${num(to[1], 0)} : ${num(to[2], 0)}</div>`);
+  } else if (e.kind === 'drill') {
+    if (e.amount) parts.push(num(e.amount, 1) + ' м³ грунта');
   } else if (e.amount !== null && e.amount !== undefined) parts.push('×' + num(e.amount));
   if (e.count) parts.push(e.count + ' раз');
-  const detail = e.kind === 'jump' || e.kind === 'jump_passenger' ? (e.detail || '').replace(/^to=\S+\s*/, '') : e.detail;
+  let detail = e.kind === 'jump' || e.kind === 'jump_passenger' ? (e.detail || '').replace(/^to=\S+\s*/, '') : e.detail;
+  // the drill's detail is the ore most of it was; "clearing" for the drill's secondary action, which keeps nothing
+  if (e.kind === 'drill' && detail) detail = /^clearing /.test(detail) ? 'расчистка без сбора, в основном ' + detail.slice(9) : 'руда: ' + detail;
   if (detail) parts.push(`<div class="detail">${esc(detail)}</div>`);
   return parts.join(' ');
 }
@@ -1066,9 +1288,14 @@ function renderInventory(sel, data) {
     if (inv.prev) for (const [k, a] of prev) if (!now.has(k)) rows.push({ name: k, amount: 0, diff: -a, gone: true });
     const shown = rows.filter((r) => !filter || r.name.toLowerCase().includes(filter));
     if (filter && !shown.length) return '';
-    const title = inv.name || (inv.grid ? 'блок ' + inv.entity : 'персонаж / рюкзак ' + inv.entity);
+    // as a person reads it: the block's name and which of its inventories, counted from 1; a character's
+    // inventory as the player's suit (the body it has now) or a body it left behind
+    const who = inv.body === 'current' ? `Скафандр «${inv.name || '?'}»`
+      : inv.body === 'old' ? `Брошенное тело «${inv.name || '?'}»`
+        : inv.name || 'блок ' + inv.entity;
+    const title = `${who}[${(Number(inv.inv) || 0) + 1}]`;
     return `<div class="inv">
-      <h4><span>${esc(title)}${inv.inv ? ' · инв. ' + inv.inv : ''}</span>
+      <h4><span>${esc(title)}</span>
         <span class="meta" title="Когда записано это содержимое">${fmt(inv.at, false)}${inv.prev ? ' (было ' + fmt(inv.prev.at, false) + ')' : ''}</span></h4>
       ${shown.length ? `<table>${shown.map((r) => `<tr class="${r.gone ? 'gone' : ''}"><td>${esc(r.name)}</td>
         <td class="amount">${num(r.amount)}</td>
@@ -1210,7 +1437,9 @@ document.addEventListener('mousedown', (e) => { if (!e.target.closest('.search')
 
 // ------------------------------------------------------------------ time
 
-function setTime(t, fromPlayback = false) {
+function setTime(t, fromPlayback = false, fromLive = false) {
+  // a moment picked by hand, away from "now", ends following the live edge
+  if (liveTimer && !fromLive && t < state.to - 3000) setLive(false);
   state.t = Math.min(state.to, Math.max(state.from, t));
   showEvents();
   if (!fromPlayback) saveHash();
@@ -1228,7 +1457,6 @@ async function focusHotspot() {
   offset.setLength(Math.max(1500, hot.cell * 1.5));
   controls.target.copy(pos);
   camera.position.copy(pos).add(offset);
-  helper.position.copy(pos);
   $('#follow').checked = false;
   setTime(hot.t);
   status(`Больше всего событий (${hot.count}) — здесь, около ${fmt(hot.t, false)}`);
@@ -1236,6 +1464,7 @@ async function focusHotspot() {
 
 const rangeHistory = [];
 async function setRange(from, to, t, remember = true, hot = false) {
+  setLive(false);
   if (remember && (Math.round(from) !== state.from || Math.round(to) !== state.to)) {
     rangeHistory.push([state.from, state.to, state.t]);
     if (rangeHistory.length > 30) rangeHistory.shift();
@@ -1274,11 +1503,79 @@ $('#lastHour').addEventListener('click', async () => { const { now } = await api
 $('#lastDay').addEventListener('click', async () => { const { now } = await api('now'); setRange(now - 24 * HOUR, now, now, true, true); });
 $('#speed').addEventListener('change', () => { state.speed = Number($('#speed').value); });
 $('#play').addEventListener('click', () => {
+  setLive(false);
   if (!state.playing && state.t >= state.to) state.t = state.from;
   state.playing = !state.playing;
   $('#play').textContent = state.playing ? '⏸' : '▶';
   if (!state.playing) setTime(state.t);
 });
+// ------------------------------------------------------------------ live: the newest records every few seconds
+
+// Every 1, 5 or 10 seconds: the range moves on to the server's "now" (as long as it was), the tracked
+// players and grids get their new points and events (only what came since the last time, not the whole
+// track again), and the moment stands on "now" - everyone in the moment, their inventories and the events
+// list follow. Positions are written once a second and the day file is written every second, so what shows
+// is a second or two behind the game.
+let liveTimer = null, liveBusy = false, liveActivityAt = 0;
+function setLive(on) {
+  if (!!liveTimer === on) return;
+  $('#live').checked = on;
+  clearInterval(liveTimer);
+  liveTimer = null;
+  document.body.classList.toggle('is-live', on);
+  if (on) {
+    if (state.playing) { state.playing = false; $('#play').textContent = '▶'; }
+    liveTimer = setInterval(liveTick, Number($('#liveEvery').value));
+    liveTick();
+  }
+  saveHash();
+}
+$('#live').addEventListener('change', () => setLive($('#live').checked));
+$('#liveEvery').addEventListener('change', () => { if (liveTimer) { setLive(false); setLive(true); } else saveHash(); });
+
+async function liveTick() {
+  if (liveBusy) return;
+  liveBusy = true;
+  try {
+    const { now } = await api('now');
+    if (!liveTimer) return;
+    const since = state.to;
+    const span = Math.max(60_000, state.to - state.from);
+    state.to = now;
+    state.from = now - span;
+    $('#from').value = toInput(state.from);
+    $('#to').value = toInput(state.to);
+    await Promise.all(state.tracks.map((track) => extendTrack(track, since)));
+    if (!liveTimer) return;
+    renderEvents();
+    // the activity bars of the whole range: not more often than every 5 s
+    if (now - liveActivityAt >= 5000) { liveActivityAt = now; loadActivity(); }
+    setTime(now, false, true);
+  } catch (e) {
+    status('Обновление в реальном времени: ' + e.message, true);
+  } finally {
+    liveBusy = false;
+  }
+}
+
+// a track's points and events since the given time added on, the ones gone out of the range dropped
+async function extendTrack(track, since) {
+  const from = since - 2000;           // a little back: a point written late is not missed
+  const [data, ev] = await Promise.all([
+    api('track', { kind: track.kind, id: track.id, from, to: state.to }),
+    api('events', { id: track.id, from, to: state.to }),
+  ]);
+  const lastPoint = track.points.length ? track.points[track.points.length - 1][0] : -Infinity;
+  const points = track.points.filter((p) => p[0] >= state.from);
+  for (const p of data.points) if (p[0] > lastPoint) points.push(p);
+  track.points = points;
+  const seen = new Set(track.events.map((e) => e.t + '|' + e.kind + '|' + e.entity));
+  track.events = track.events.filter((e) => e.t >= state.from).concat(ev.events.filter((e) => !seen.has(e.t + '|' + e.kind + '|' + e.entity)));
+  Object.assign(track.names, ev.names);
+  if (data.name) track.name = data.name;
+  build3d(track);
+}
+
 function setLayer(value) {
   layer = value;
   document.querySelectorAll('#layers button').forEach((b) => b.classList.toggle('active', b.dataset.layer === value));
@@ -1312,6 +1609,7 @@ const CATEGORIES = [
   { name: 'предметы', color: '#58d68d', kinds: ['transfer', 'drop', 'balance'] },
   { name: 'стройка', color: '#5dade2', kinds: ['block_built', 'block_removed', 'weld', 'paste', 'grid_added', 'grid_removed'] },
   { name: 'прыжки', color: '#c39bd3', kinds: ['jump', 'jump_passenger'] },
+  { name: 'добыча', color: '#b9770e', kinds: ['drill'] },
   { name: 'прочее', color: '#bdc3c7', kinds: null },
 ];
 function categoryOf(kind) {
@@ -1493,6 +1791,7 @@ timeline.addEventListener('mousedown', (ev) => {
   ev.preventDefault();              // no auto-scroll
   pan = { x: ev.clientX, from: state.from, to: state.to };
   timeline.style.cursor = 'grabbing';
+  setLive(false);
 });
 timeline.addEventListener('auxclick', (ev) => { if (ev.button === 1) ev.preventDefault(); });
 window.addEventListener('mousemove', (ev) => {
@@ -1551,6 +1850,7 @@ const applyWheel = debounce(() => {
 }, 400);
 timeline.addEventListener('wheel', (ev) => {
   ev.preventDefault();
+  setLive(false);
   if (!wheelBase) wheelBase = [state.from, state.to];
   const k = ev.deltaY > 0 ? 1.3 : 1 / 1.3;
   const at = timeFromMouse(ev);
@@ -1623,6 +1923,7 @@ function saveHash() {
   if (state.selected) h.set('sel', state.selected);
   if (activeTab() && activeTab() !== 'moment') h.set('tab', activeTab());
   if (layer !== 'all') h.set('layer', layer);
+  if (liveTimer) h.set('live', $('#liveEvery').value);
   history.replaceState(null, '', '#' + h.toString());
   // the inventories page opens on the same range and the selected player or grid
   const ledger = new URLSearchParams();
@@ -1655,6 +1956,11 @@ async function start() {
   if (h.get('tab')) showTab(h.get('tab'));
   if (h.get('layer')) setLayer(h.get('layer'));
   setTime(state.t);
+  if (h.get('live')) {
+    const every = h.get('live');
+    if ([...$('#liveEvery').options].some((o) => o.value === every)) $('#liveEvery').value = every;
+    setLive(true);
+  }
   const days = await api('days');
   if (!state.tracks.length) status(days.length ? `Записи есть за ${days.length} дн. (последний ${days[0]}). Найдите игрока или грид.` : 'Записей пока нет.');
 }
@@ -1673,7 +1979,6 @@ function flyTo(pos, keepFollow = false, distance = 100) {
     fromTarget: controls.target.clone(), fromCamera: camera.position.clone(),
     toTarget: pos.clone(), toCamera: pos.clone().add(dir),
   };
-  helper.position.copy(pos);
 }
 function fly(now) {
   if (!flight) return;
@@ -1716,7 +2021,6 @@ function moveByKeys(dt) {
   moveV.normalize().multiplyScalar(speed * Math.min(dt, 100) / 1000);
   camera.position.add(moveV);
   controls.target.add(moveV);
-  helper.position.copy(controls.target);
   $('#follow').checked = false;
   flight = null;
 }
@@ -1739,7 +2043,11 @@ function frame(now) {
     fly(now);
     moveByKeys(dt);
     controls.update();
+    // the headlight a little above and behind the camera, shining where it looks
+    headlight.position.copy(camera.position).add(camera.up.clone().multiplyScalar(camera.position.distanceTo(controls.target) * 0.3));
+    headlight.target.position.copy(controls.target);
     updateScene();
+    updatePatch(now);
     if (hoverEvent) { hover(hoverEvent); hoverEvent = null; }
     renderer.render(scene, camera);
   } catch (e) {

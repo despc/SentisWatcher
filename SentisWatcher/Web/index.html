@@ -101,6 +101,14 @@
       <option value="600">×600</option>
       <option value="3600">×3600</option>
     </select>
+    <span class="live" title="Раз в несколько секунд подтягивать новые записи из базы: интервал сдвигается к «сейчас», момент стоит на «сейчас». Выключается, если сдвинуть ползунок, интервал или нажать ▶">
+      <label><input type="checkbox" id="live"> В реальном времени</label>
+      <select id="liveEvery" title="Как часто подтягивать">
+        <option value="1000">1 с</option>
+        <option value="5000" selected>5 с</option>
+        <option value="10000">10 с</option>
+      </select>
+    </span>
     <div id="clock" class="clock"></div>
     <div class="timeline-wrap">
       <canvas id="timeline" title="Клик — момент; протяжка — выделить диапазон; колесо — приблизить/отдалить; зажатое колесо — сдвинуть; бегунок можно тащить"></canvas>

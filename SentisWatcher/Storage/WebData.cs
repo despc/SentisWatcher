@@ -25,6 +25,12 @@ namespace SentisWatcher.Storage
         /// </summary>
         public Func<long, string> LiveName;
 
+        /// <summary>
+        /// The character a player's identity has now (0 for none): tells its own body from bodies it left
+        /// behind. Unset in tests.
+        /// </summary>
+        public Func<long, long> LiveBody;
+
         public WebData(WatcherStore store)
         {
             _store = store;
@@ -84,7 +90,11 @@ namespace SentisWatcher.Storage
                 using (var cmd = Command(db, "SELECT id, name FROM names WHERE id IN (" + string.Join(",", wanted) + ")"))
                 using (var r = cmd.ExecuteReader())
                     while (r.Read())
-                        names[Id(r, 0)] = r.IsDBNull(1) ? "" : r.GetString(1);
+                    {
+                        // an empty name says nothing: the running game may know better
+                        var name = r.IsDBNull(1) ? "" : r.GetString(1);
+                        if (name.Length > 0) names[Id(r, 0)] = name;
+                    }
             if (LiveName != null)
                 foreach (var id in wanted)
                 {
@@ -252,7 +262,9 @@ namespace SentisWatcher.Storage
                                     r.IsDBNull(5) ? 0 : r.GetDouble(5), Id(r, 6), Id(r, 7)));
                         }
             }
-            var names = Names(latest.Keys.Select(k => k.Item1), at - 86_400_000L, at);
+            // the owners too: a body that nothing names goes by its player's name
+            var owners = latest.Values.Select(v => long.TryParse(v[0].Item6, out var o) ? o : 0L);
+            var names = Names(latest.Keys.Select(k => k.Item1).Concat(owners), at - 86_400_000L, at);
             object Items(string text) => InventoryCodec.Decode(text).Select(s => new Dictionary<string, object>
             {
                 ["type"] = s.Type, ["subtype"] = s.Subtype, ["amount"] = s.Amount,
@@ -261,11 +273,21 @@ namespace SentisWatcher.Storage
             {
                 var now = p.Value[0];
                 var entity = p.Key.Item1.ToString(CultureInfo.InvariantCulture);
+                // on no grid: a character's inventory - the player's body now, or one it left behind
+                string body = null;
+                var name = names.TryGetValue(entity, out var n) ? n : null;
+                if (string.IsNullOrEmpty(now.Grid) || now.Grid == "0")
+                {
+                    long.TryParse(now.Owner, out var owner);
+                    body = LiveBody != null && owner != 0 && LiveBody(owner) == p.Key.Item1 ? "current" : "old";
+                    if (name == null && now.Owner != null) names.TryGetValue(now.Owner, out name);
+                }
                 return new Dictionary<string, object>
                 {
                     ["entity"] = entity,
                     ["inv"] = p.Key.Item2,
-                    ["name"] = names.TryGetValue(entity, out var n) ? n : null,
+                    ["name"] = name,
+                    ["body"] = body,
                     ["grid"] = now.Grid,
                     ["owner"] = now.Owner,
                     ["at"] = now.T,

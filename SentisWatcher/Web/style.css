@@ -98,10 +98,14 @@ aside { background: var(--panel); border-left: 1px solid var(--line); display: f
 .inv .volume { color: var(--dim); font-size: 11px; padding: 4px 8px; }
 
 footer {
-  display: grid; grid-template-columns: auto auto 190px 1fr; gap: 8px; align-items: center; padding: 6px 10px;
+  display: grid; grid-template-columns: auto auto auto 190px 1fr; gap: 8px; align-items: center; padding: 6px 10px;
   background: var(--panel); border-top: 1px solid var(--line);
 }
 #play { width: 36px; }
+.live { display: flex; gap: 4px; align-items: center; white-space: nowrap; }
+.live label { display: flex; gap: 4px; align-items: center; cursor: pointer; }
+body.is-live .live label { color: #58d68d; }
+body.is-live .clock::after { content: ' ● live'; color: #58d68d; font-size: 11px; }
 .clock { font-family: Consolas, monospace; font-size: 14px; }
 .timeline-wrap { position: relative; min-width: 0; }
 #timeline { width: 100%; height: 72px; cursor: crosshair; display: block; }

@@ -126,7 +126,7 @@ namespace SentisWatcher.Storage
                             var kind = r.GetString(1);
                             var actor = r.IsDBNull(2) ? 0 : r.GetInt64(2);
                             var amount = r.IsDBNull(4) ? 0 : r.GetDouble(4);
-                            if (kind == "damage" || kind == "grind" || kind == "destroyed" || kind == "weld")
+                            if (kind == "damage" || kind == "grind" || kind == "destroyed" || kind == "weld" || kind == "drill")
                                 byActor[(kind, actor)] = (byActor.TryGetValue((kind, actor), out var s) ? s : 0) + amount;
                             events.Add((r.GetInt64(0), FormatEvent(r)));
                         }

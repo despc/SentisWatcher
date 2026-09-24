@@ -351,7 +351,8 @@ function topItems() {
 function renderSubject() {
   const d = state.data;
   const kindName = { player: 'Игрок', grid: 'Грид', entity: 'Инвентарь' }[d.kind];
-  const name = d.name || d.id;
+  // an inventory nothing names: a block's by its number, a character's as a body
+  const name = d.name || (d.kind === 'entity' ? (d.grids[d.id] ? `блок ${d.id}` : `тело ${d.id}`) : d.id);
   const bad = subjectAlerts().filter((a) => severity(a.kind) === 3).length;
   const up = d.kind === 'entity' && d.grids[d.id] ? `<a data-grid="${d.grids[d.id]}">грид «${esc(d.names[d.grids[d.id]] || d.grids[d.id])}»</a>` : '';
   $('#subject').innerHTML = `<h2>${kindName}: ${esc(name)}</h2>
@@ -404,6 +405,21 @@ function renderSources() {
     }).join('');
 }
 
+// An inventory as a person reads it: the block's name and which of its inventories, counted from 1
+// ("Survival Kit[2]"); a character's own inventory as the player's suit - the body it has now, or one it
+// left behind (after a respawn), or just a body when that is not known.
+function invLabel(entity, inv, names, body, owner) {
+  // a body nothing names goes by its player's name; a block goes by its name, or its type/subtype when it
+  // has none - only a block of an old record whose grid is long gone is left with its number
+  const name = names[entity] || (body && owner ? names[owner] : null);
+  let who;
+  if (body === 'current') who = `Скафандр «${name || '?'}»`;
+  else if (body === 'old') who = `Брошенное тело «${name || '?'}»`;
+  else if (body === 'body') who = `Тело «${name || '?'}»`;
+  else who = name || `блок ${entity}`;
+  return `${who}[${(Number(inv) || 0) + 1}]`;
+}
+
 function renderChanges(near = null) {
   const d = state.data;
   if (!d) return;
@@ -417,7 +433,7 @@ function renderChanges(near = null) {
   $('#changes').innerHTML = (near ? `<div class="head">Рядом с ${fmt(near)} · <a id="allChanges" href="#">все</a></div>` : '') +
     list.slice(0, 600).map((c) => {
       const grid = d.grids[c.entity];
-      const where = (names[c.entity] || c.entity) + (grid && grid !== c.entity ? ' · ' + (names[grid] || grid) : '');
+      const where = invLabel(c.entity, c.inv, names, grid ? null : 'body') + (grid && grid !== c.entity ? ' · ' + (names[grid] || grid) : '');
       const delta = Object.entries(c.delta).map(([i, v]) => `<span class="d ${v > 0 ? 'plus' : 'minus'}">${esc(itemName(i))} ${signed(v)}</span>`).join(', ');
       const flows = c.flows.sort((x, y) => Math.abs(y[2]) - Math.abs(x[2])).slice(0, 12)
         .map(([k, i, v]) => `<span class="chip ${kindClass(k)}">${esc(kindLabel(k, names))}: ${esc(itemName(i))} <b class="${v > 0 ? 'plus' : 'minus'}">${signed(v)}</b></span>`).join('');
@@ -685,7 +701,7 @@ function renderHoldings() {
   $('#holdingsAt').textContent = `на ${fmt(holdings.at)}`;
   const cards = [];
   for (const inv of all) {
-    const name = names[inv.entity] || inv.entity;
+    const name = invLabel(inv.entity, inv.inv, names, inv.body, inv.owner);
     const gridName = inv.grid ? names[inv.grid] || inv.grid : '';
     const items = new Set([...Object.keys(inv.items), ...Object.keys(inv.prev || {})]);
     if (!showEmpty && !Object.keys(inv.items).length && !Object.keys(inv.prev || {}).length) continue;
@@ -703,7 +719,7 @@ function renderHoldings() {
     const why = inv.flows.sort((a, b) => Math.abs(b[2]) - Math.abs(a[2])).slice(0, 6)
       .map(([k, i, v]) => `<span class="chip ${kindClass(k)}" title="${esc(k)}">${esc(kindLabel(k, names))}: ${esc(itemName(i))} <b class="${v > 0 ? 'plus' : 'minus'}">${signed(v)}</b></span>`).join('');
     cards.push(`<div class="card">
-      <h4><a data-entity="${inv.entity}" title="Только этот инвентарь">${esc(name)}${inv.inv ? ' · ' + (inv.inv + 1) : ''}</a>
+      <h4><a data-entity="${inv.entity}" title="Только этот инвентарь">${esc(name)}</a>
         <span class="meta" title="Когда записано это состояние${inv.prevT ? '; прошлая запись — ' + fmt(inv.prevT, false) : ''}">${fmt(inv.t, false)}</span></h4>
       ${state.kind === 'player' && inv.grid ? `<div class="grid">на <a data-grid="${inv.grid}" title="Инвентари этого грида">${esc(gridName)}</a></div>` : ''}
       <div class="fill" title="Заполнено ${num(fill, 0)}%"><div style="width:${fill}%"></div></div>

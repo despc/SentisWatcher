@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading.Tasks;
+using NLog;
 using Sandbox.Game;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Character;
@@ -21,10 +23,14 @@ namespace SentisWatcher.Recording
     /// costs one pass of hashing; a new UTC day starts with every inventory written again. Each inventory is
     /// also checked for what no honest one holds (Invariants), and against the ledger: what it holds now must
     /// be what it held at the last visit plus the flows booked since (<see cref="InventoryLedger"/>); the
-    /// flows are written with it. An inventory whose entity is gone gets a last row with no items.
+    /// flows are written with it. An inventory whose entity is gone gets a last row with no items - also one
+    /// that went away while the server was down (a dead body not saved, a grid deleted from the save): the day
+    /// files' last rows are read at the start, and after the first pass what of them is not in the world is gone.
     /// </summary>
     public sealed class InventorySweep
     {
+        private static readonly Logger Log = LogManager.GetCurrentClassLogger();
+
         public const long PassMs = 5 * 60_000;
         public const double BudgetMs = 0.3;
 
@@ -56,7 +62,12 @@ namespace SentisWatcher.Recording
         public InventorySweep(Recorder recorder)
         {
             _recorder = recorder;
+            var today = DateTime.UtcNow.Date;
+            _lastRun = Task.Run(() => recorder.Store.LastHeld(today.AddDays(-1), today));
         }
+
+        /// <summary>What the day files had not gone when the server started; taken after the first pass.</summary>
+        private Task<List<WatcherStore.HeldRow>> _lastRun;
 
         /// <summary>Game thread, every frame.</summary>
         public void Tick()
@@ -154,8 +165,42 @@ namespace SentisWatcher.Recording
             LastPassInventories = _inventories;
             LastPassWritten = _writtenThisPass;
             _orphans = InventoryLedger.Current?.TakeOrphans() ?? new Dictionary<(long, int), InventoryLedger.Pending>();
+            TakeLastRun();
             _prune = new List<(long, int)>(_seen.Keys.Union(_orphans.Keys));
             _pruneCursor = 0;
+        }
+
+        /// <summary>
+        /// The inventories the day files left not gone, now not in the world (the first pass has seen all that
+        /// is): known as they were written last, so the prune gives them their last row like any other.
+        /// </summary>
+        private void TakeLastRun()
+        {
+            if (_lastRun == null || !_lastRun.IsCompleted) return;
+            var task = _lastRun;
+            _lastRun = null;
+            if (task.IsFaulted)
+            {
+                Log.Warn(task.Exception?.GetBaseException(), "SentisWatcher: the inventories of the last run could not be read");
+                return;
+            }
+            var gone = 0;
+            foreach (var row in task.Result)
+            {
+                var key = (row.Entity, row.Inv);
+                if (_seen.ContainsKey(key) || MyEntities.EntityExists(row.Entity)) continue;
+                var items = new Dictionary<string, long>();
+                foreach (var stack in InventoryCodec.Decode(row.Items))
+                {
+                    if (stack.Type == "Gas") continue;
+                    var name = stack.Type + "/" + stack.Subtype;
+                    items.TryGetValue(name, out var was);
+                    items[name] = was + stack.Raw;
+                }
+                _seen[key] = new Seen { Items = items, Owner = row.Owner, Grid = row.Grid, Day = _day };
+                gone++;
+            }
+            if (gone > 0) Log.Info($"SentisWatcher: {gone} inventories went away while the server was down");
         }
 
         private Dictionary<(long, int), InventoryLedger.Pending> _orphans = new Dictionary<(long, int), InventoryLedger.Pending>();
@@ -177,10 +222,21 @@ namespace SentisWatcher.Recording
                 seen?.Owner ?? 0, null, 0.0, 0.0, flows.Encode()));
         }
 
+        /// <summary>A block's name as a player sees it; with none, its type and subtype ("SurvivalKit/SurvivalKitLarge").</summary>
+        public static string BlockName(MyCubeBlock block)
+        {
+            var own = block.DisplayNameText;
+            if (!string.IsNullOrWhiteSpace(own)) return own;
+            var id = block.BlockDefinition?.Id;
+            return id == null ? "" : id.Value.TypeId.ToString().Replace("MyObjectBuilder_", "") + "/" + id.Value.SubtypeName;
+        }
+
         private void Visit(MyEntity owner, long gridId, long ownerIdentity, long now)
         {
-            // the web view shows a block by its name; for a block, "owner" of the name is its grid
-            if (owner is MyCubeBlock named) _recorder.Name(named.EntityId, "block", named.DisplayNameText, gridId);
+            // the web view shows a block by its name (its type and subtype when it has none); for a
+            // block, "owner" of the name is its grid. A character by its player's name, "owner" its identity.
+            if (owner is MyCubeBlock named) _recorder.Name(named.EntityId, "block", BlockName(named), gridId);
+            else if (owner is MyCharacter body) _recorder.Name(body.EntityId, "character", body.DisplayName ?? "", ownerIdentity);
             for (var i = 0; i < owner.InventoryCount; i++)
             {
                 if (!(owner.GetInventory(i) is MyInventory inventory)) continue;

@@ -31,7 +31,7 @@ namespace SentisWatcher.Web
         public WebServer(WatcherStore store, int port)
         {
             Port = port;
-            _data = new WebData(store) { LiveName = LiveName };
+            _data = new WebData(store) { LiveName = LiveName, LiveBody = LiveBody };
             // the build names embedded files Web/lib\x.js: one separator
             _resources = typeof(WebServer).Assembly.GetManifestResourceNames()
                 .Where(n => n.StartsWith("Web/"))
@@ -46,11 +46,27 @@ namespace SentisWatcher.Web
             {
                 var identity = Sandbox.Game.World.MySession.Static?.Players?.TryGetIdentity(id);
                 if (identity != null) return identity.DisplayName;
-                return Sandbox.Game.Entities.MyEntities.TryGetEntityById(id, out var entity) ? entity.DisplayName : null;
+                if (!Sandbox.Game.Entities.MyEntities.TryGetEntityById(id, out var entity)) return null;
+                // a block by its name, or its type and subtype when it has none
+                if (entity is Sandbox.Game.Entities.MyCubeBlock block) return Recording.InventorySweep.BlockName(block);
+                return entity.DisplayName;
             }
             catch (Exception)
             {
                 return null;
+            }
+        }
+
+        /// <summary>The character an identity has now, or 0 (web thread: only reads).</summary>
+        private static long LiveBody(long identity)
+        {
+            try
+            {
+                return Sandbox.Game.World.MySession.Static?.Players?.TryGetIdentity(identity)?.Character?.EntityId ?? 0;
+            }
+            catch (Exception)
+            {
+                return 0;
             }
         }
 
@@ -170,6 +186,8 @@ namespace SentisWatcher.Web
                 case "ledger": return _data.Ledger(q["kind"], L("id"), from, to);
                 case "anomalies": return _data.Anomalies(from, to);
                 case "holdings": return _data.Holdings(q["kind"], L("id"), L("t", now));
+                case "relief": return Http.Relief.Of(L("id"), q["name"]);
+                case "terrain": return Http.Relief.Patch(L("id"), q["name"], D("x"), D("y"), D("z"), D("size"), (int)L("n", 129));
                 case "now": return new { now, offsetMinutes = Clock.OffsetMinutes(now), zone = Clock.Zone(now) };
                 default: return null;
             }

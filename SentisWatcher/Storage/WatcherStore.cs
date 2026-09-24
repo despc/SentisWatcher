@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Data.SQLite;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using NLog;
 
@@ -143,6 +144,40 @@ namespace SentisWatcher.Storage
             // a row may leave out the last columns: they are NULL, not what the previous row had
             for (var c = 0; c < parameters.Count; c++) parameters[c].Value = c < row.Values.Length ? row.Values[c] ?? DBNull.Value : DBNull.Value;
             command.ExecuteNonQuery();
+        }
+
+        /// <summary>An inventory's last row in a day file: whose it was, on what grid, what it held.</summary>
+        public struct HeldRow
+        {
+            public long Entity, Grid, Owner;
+            public int Inv;
+            public string Items;
+        }
+
+        /// <summary>
+        /// The inventories not gone by the end of the given days (as far as the files know): the last row of
+        /// each, the later day's winning, with its items. What the server keeps in memory of the inventories
+        /// is lost at a restart; with these it can still tell which of them went away while it was down.
+        /// </summary>
+        public List<HeldRow> LastHeld(params DateTime[] days)
+        {
+            var last = new Dictionary<(long, int), HeldRow>();
+            foreach (var day in days.OrderBy(d => d))
+                using (var db = OpenRead(day))
+                {
+                    if (db == null) continue;
+                    using (var command = new SQLiteCommand(
+                               "SELECT i.entity, i.inv, i.grid, i.owner, i.items FROM inventories i JOIN " +
+                               "(SELECT entity, inv, MAX(id) AS id FROM inventories GROUP BY entity, inv) l ON l.id = i.id", db))
+                    using (var r = command.ExecuteReader())
+                        while (r.Read())
+                            last[(r.GetInt64(0), (int)r.GetInt64(1))] = new HeldRow
+                            {
+                                Entity = r.GetInt64(0), Inv = (int)r.GetInt64(1), Grid = r.IsDBNull(2) ? 0 : r.GetInt64(2),
+                                Owner = r.IsDBNull(3) ? 0 : r.GetInt64(3), Items = r.IsDBNull(4) ? null : r.GetString(4),
+                            };
+                }
+            return last.Values.Where(h => h.Items != null).ToList();
         }
 
         public static bool HasColumn(SQLiteConnection connection, string table, string column)
