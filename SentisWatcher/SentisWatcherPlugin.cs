@@ -80,6 +80,7 @@ namespace SentisWatcher
             Sweep = new InventorySweep(recorder);
             _hooks = new EventHooks();
             Recorder.Current = recorder;
+            PerfSampler.Start();
             if (LedgerPatches.Booking) InventoryLedger.Current = new InventoryLedger();
             else Log.Warn("SentisWatcher: the inventory ledger is off, its hooks are missing");
             _hooks.Attach();
@@ -105,6 +106,7 @@ namespace SentisWatcher
             var recorder = Recorder.Current;
             if (recorder == null) return;
             _hooks?.Detach();
+            PerfSampler.Stop();
             Web?.Dispose();
             Web = null;
             try
@@ -138,6 +140,8 @@ namespace SentisWatcher
                 LedgerPatches.ResetThread();
                 Sampler?.Tick();
                 Sweep?.Tick();
+                PerfSampler.Tick(recorder);
+                LoadSampler.Tick(recorder);
                 recorder.FlushAggregates();
                 InventoryLedger.Current?.FlushSuspects(recorder);
             }
@@ -161,6 +165,9 @@ namespace SentisWatcher
                 $"written {Store.Written} rows, queued {Store.Queued}, dropped {Store.Dropped}; " +
                 $"last inventory pass {Sweep?.LastPassInventories} inventories, {Sweep?.LastPassWritten} written; " +
                 (InventoryLedger.Current != null ? $"ledger: {InventoryLedger.Current.PendingCount} inventories changed since their visit" : "ledger off");
+
+        /// <summary>Keeps a setting changed by a command.</summary>
+        public void SaveConfig() => _config?.Save(_configPath);
 
         public override void Dispose()
         {

@@ -1,7 +1,7 @@
 // SentisWatcher web view: tracks of players and grids in 3D, a time slider, their events and inventories.
 // Everything comes from the plugin's read-only API; ids are strings (they do not fit a JS number).
 import * as THREE from 'three';
-import { OrbitControls } from './lib/OrbitControls.js';
+import { FreeLookControls } from './freelook.js';
 
 const $ = (s) => document.querySelector(s);
 const HOUR = 3600_000;
@@ -118,8 +118,9 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x03050a);
 const camera = new THREE.PerspectiveCamera(55, 1, 1, 2e9);
 camera.position.set(300, 250, 300);
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
+// the game's first-person view: the left button held turns the view, Q and E roll it (see freelook.js)
+const controls = new FreeLookControls(camera, renderer.domElement);
+camera.lookAt(0, 0, 0);
 scene.add(new THREE.AmbientLight(0xffffff, 0.3));
 // a light from the camera, softer than the sun: the ground keeps its shape on the night side too (slopes
 // facing away come out darker), the way a map is read rather than how the game lights it
@@ -1087,6 +1088,7 @@ function hover(ev) {
 }
 // a double click flies up to what is under the mouse
 renderer.domElement.addEventListener('dblclick', (ev) => {
+  if (controls.consumeDrag()) return;               // (the end of turning the view, not a click)
   const o = pick(ev);
   if (!o) return;
   const marker = o.userData.track && !o.userData.event;
@@ -1094,6 +1096,7 @@ renderer.domElement.addEventListener('dblclick', (ev) => {
   flyTo(o.position.clone(), marker);
 });
 renderer.domElement.addEventListener('click', (ev) => {
+  if (controls.consumeDrag()) return;               // (the end of turning the view, not a click)
   const o = pick(ev);
   if (!o) return;
   if (o.userData.ambientJump) {
@@ -2042,7 +2045,7 @@ function frame(now) {
     }
     fly(now);
     moveByKeys(dt);
-    controls.update();
+    controls.update(dt);
     // the headlight a little above and behind the camera, shining where it looks
     headlight.position.copy(camera.position).add(camera.up.clone().multiplyScalar(camera.position.distanceTo(controls.target) * 0.3));
     headlight.target.position.copy(controls.target);

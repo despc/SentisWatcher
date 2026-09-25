@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <title>SentisWatcher</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="stylesheet" href="style.css">
   <script type="importmap">{ "imports": { "three": "./lib/three.module.min.js" } }</script>
 </head>
 <body>
   <header>
     <div class="brand">SentisWatcher</div>
-    <nav class="pages"><a class="here">Карта</a><a href="ledger.html" id="toLedger" title="Инвентари по времени: откуда что бралось, аномалии">Инвентари</a></nav>
+    <nav class="pages"><a class="here">Карта</a><a href="ledger.html" id="toLedger" title="Инвентари по времени: откуда что бралось, аномалии">Инвентари</a><a href="perf.html" title="Нагрузка на игровой поток, сборка мусора, память">Производительность</a></nav>
     <div class="search">
       <input id="search" type="search" placeholder="Игрок или грид: имя, steam id, id…" autocomplete="off">
       <button id="searchOpen" class="open" title="Все игроки и гриды интервала">▾</button>
@@ -38,7 +39,7 @@
         <div id="hudAltitude"></div>
         <div class="scale"><div id="scaleBar" class="bar"></div><span id="scaleText"></span></div>
         <label class="hudcheck"><input id="showDistance" type="checkbox"> расстояния до объектов</label>
-        <div class="keys">WASD, пробел, C — сдвиг камеры (Shift — быстрее) · двойной клик — подлететь</div>
+        <div class="keys">ЛКМ — поворот взгляда, Q/E — крен, колесо — ближе/дальше, ПКМ — сдвиг · WASD, пробел, C — движение (Shift — быстрее) · двойной клик — подлететь</div>
       </div>
     </div>
     <aside>

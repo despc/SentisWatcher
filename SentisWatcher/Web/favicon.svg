@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#232933"/>
+      <stop offset="1" stop-color="#12151a"/>
+    </linearGradient>
+    <radialGradient id="planet" cx="0.38" cy="0.34" r="0.75">
+      <stop offset="0" stop-color="#b9e1ff"/>
+      <stop offset="0.45" stop-color="#5fb3f9"/>
+      <stop offset="1" stop-color="#1b4f8a"/>
+    </radialGradient>
+    <clipPath id="eye">
+      <path d="M5 32 Q32 7 59 32 Q32 57 5 32 Z"/>
+    </clipPath>
+  </defs>
+  <rect x="1" y="1" width="62" height="62" rx="14" fill="url(#bg)" stroke="#2c323c" stroke-width="2"/>
+  <!-- the eye: its iris a planet, a tracked ship on an orbit around it -->
+  <g clip-path="url(#eye)">
+    <rect x="0" y="0" width="64" height="64" fill="#0d1014"/>
+    <circle cx="32" cy="32" r="13" fill="url(#planet)"/>
+    <circle cx="32" cy="32" r="5" fill="#0d1014"/>
+    <circle cx="27.5" cy="27" r="2.6" fill="#ffffff" opacity="0.85"/>
+  </g>
+  <path d="M5 32 Q32 7 59 32 Q32 57 5 32 Z" fill="none" stroke="#5fb3f9" stroke-width="4" stroke-linejoin="round"/>
+  <ellipse cx="32" cy="32" rx="25" ry="8" transform="rotate(-28 32 32)" fill="none" stroke="#58d68d" stroke-width="2" stroke-dasharray="4 3" opacity="0.9"/>
+  <circle cx="54.1" cy="20.3" r="4.5" fill="#58d68d" stroke="#12151a" stroke-width="1.5"/>
+</svg>

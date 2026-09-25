@@ -66,6 +66,19 @@ CREATE TABLE IF NOT EXISTS planets(
 CREATE TABLE IF NOT EXISTS alerts(
   id INTEGER PRIMARY KEY, t INTEGER NOT NULL, kind TEXT NOT NULL, actor INTEGER, entity INTEGER, detail TEXT);
 CREATE INDEX IF NOT EXISTS alerts_by_t ON alerts(t);
+
+-- how hard the server worked, every 5 s: the game thread's frame and its physics in ms (average and worst frame
+-- of the period), the other parts of the frame in blocks ('entities_before:avg:max;entities_after:...;other:...'),
+-- collections by generation, the share of the time in GC (%), memory (MB), the simulation speed, players online
+CREATE TABLE IF NOT EXISTS perf(
+  id INTEGER PRIMARY KEY, t INTEGER NOT NULL, frames INTEGER, frame REAL, frame_max REAL, physics REAL, physics_max REAL,
+  gc0 INTEGER, gc1 INTEGER, gc2 INTEGER, gc_time REAL, managed_mb REAL, private_mb REAL, working_mb REAL,
+  sim REAL, players INTEGER, blocks TEXT);
+CREATE INDEX IF NOT EXISTS perf_by_t ON perf(t);
+CREATE TABLE IF NOT EXISTS load(
+  id INTEGER PRIMARY KEY, t INTEGER NOT NULL, kind TEXT NOT NULL, entity INTEGER, name TEXT, owner INTEGER, owner_name TEXT,
+  frames INTEGER, ms REAL, max_ms REAL);
+CREATE INDEX IF NOT EXISTS load_by_t ON load(t);
 ";
 
         /// <summary>Changes to the files of older versions, each run only where it is missing.</summary>

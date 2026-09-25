@@ -90,6 +90,29 @@ namespace SentisWatcher.Commands
             Answer("alerts", (query, from, to) => query.Alerts(from, to, MaxEvents), minutes, 0);
         }
 
+        [Command("load", "!watch load [on|off|burst<seconds>|minutes=10]: who loads the game thread (grids, players, components, plugins); on/off turns the sampling on and off.")]
+        [Permission(MyPromoteLevel.Admin)]
+        public void Load(string what = "10")
+        {
+            var config = SentisWatcherPlugin.Config;
+            if (what == "on" || what == "off")
+            {
+                config.LoadSampling = what == "on";
+                SentisWatcherPlugin.Instance?.SaveConfig();
+                Context.Respond("Load sampling is " + (config.LoadSampling ? "on" : "off"));
+                return;
+            }
+            if (what.StartsWith("burst"))
+            {
+                var seconds = int.TryParse(what.Substring(5), out var s) ? s : 30;
+                Recording.LoadSampler.Burst(seconds);
+                Context.Respond($"Timing every frame for {seconds} s; then !watch load 2");
+                return;
+            }
+            if (!int.TryParse(what, out var minutes)) minutes = 10;
+            Answer("load", (query, from, to) => (config.LoadSampling ? "" : "(sampling is off now)" + Environment.NewLine) + query.Load(from, to, 15), minutes, 0);
+        }
+
         private void Answer(string what, Func<WatcherQuery, long, long, string> read, int minutes, int endedMinutesAgo)
         {
             var store = SentisWatcherPlugin.Instance?.Store;

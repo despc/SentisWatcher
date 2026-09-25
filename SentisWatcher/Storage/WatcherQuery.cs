@@ -201,6 +201,9 @@ namespace SentisWatcher.Storage
         }
 
         /// <summary>The alerts of the time range (all, or about one actor).</summary>
+        /// <summary>Who loaded the game thread.</summary>
+        public string Load(long from, long to, int top) => LoadReport.Read(Days(from, to), from, to).Describe(top);
+
         public string Alerts(long from, long to, int max)
         {
             var lines = new List<(long, string)>();

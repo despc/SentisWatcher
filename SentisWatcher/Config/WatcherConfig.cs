@@ -57,5 +57,17 @@ namespace SentisWatcher.Config
             get => _webPort;
             set => SetValue(ref _webPort, value);
         }
+
+        private bool _loadSampling = true;
+
+        /// <summary>Who loads the game thread: grids, characters, session components, plugins (LoadSampler).</summary>
+        [DisplayTab(Name = "Load by grid and player", GroupName = "Performance", Tab = "Performance", Order = 0, LiveUpdate = true,
+            Description = "Time the updates of every grid, character, session component and plugin in one frame of every 30-90, " +
+                          "at random, and record who loads the game thread. Turns on and off at once (also: !watch load on|off).")]
+        public bool LoadSampling
+        {
+            get => _loadSampling;
+            set => SetValue(ref _loadSampling, value);
+        }
     }
 }

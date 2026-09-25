@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>SentisWatcher — производительность</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="perf.css">
+</head>
+<body class="perf">
+  <header>
+    <div class="brand">SentisWatcher</div>
+    <nav class="pages"><a href="index.html" title="3D-карта с треками и событиями">Карта</a><a href="ledger.html" title="Инвентари по времени: откуда что бралось, аномалии">Инвентари</a><a class="here">Производительность</a></nav>
+    <label>с <input id="from" type="datetime-local" step="1"></label>
+    <label>по <input id="to" type="datetime-local" step="1"></label>
+    <span id="zone" class="utc" title="Время сервера">время сервера</span>
+    <button id="reload" title="Загрузить за этот интервал">Загрузить</button>
+    <button id="last15">15 мин</button>
+    <button id="lastHour">Час</button>
+    <button id="lastDay">Сутки</button>
+    <button id="lastWeek">Неделя</button>
+    <label title="Подгружать новые точки каждые 10 секунд, интервал сдвигается к текущему моменту"><input id="live" type="checkbox" checked> вживую</label>
+    <div id="status" class="status"></div>
+  </header>
+
+  <main>
+    <section class="board">
+      <div id="summary" class="summary"></div>
+
+      <div class="panel">
+        <h3>Кадр игрового потока <span class="dim">— мс, в среднем за точку; тонкие линии — худший кадр; пунктир — 16,7 мс (60 кадров в секунду)</span></h3>
+        <canvas id="cFrame"></canvas>
+        <div id="lFrame" class="legend"></div>
+      </div>
+
+      <div class="panel">
+        <h3>Из чего состоит кадр <span class="dim">— мс в среднем за кадр</span></h3>
+        <canvas id="cBlocks"></canvas>
+        <div id="lBlocks" class="legend"></div>
+      </div>
+
+      <div class="panel">
+        <h3>Сборка мусора <span class="dim">— столбики: сборки за точку по поколениям; линия: доля времени в GC, %</span></h3>
+        <canvas id="cGc"></canvas>
+        <div id="lGc" class="legend"></div>
+      </div>
+
+      <div class="panel">
+        <h3>Память <span class="dim">— МБ</span></h3>
+        <canvas id="cMem"></canvas>
+        <div id="lMem" class="legend"></div>
+      </div>
+
+      <div class="panel">
+        <h3>Скорость симуляции и игроки</h3>
+        <canvas id="cSim"></canvas>
+        <div id="lSim" class="legend"></div>
+      </div>
+      <div class="panel">
+        <h3>Кто нагружает игровой поток <span class="dim">— замер одного кадра из 30–90, случайно; время в среднем кадре и худший кадр</span></h3>
+        <div id="loadTabs" class="tabs"></div>
+        <div id="loadNote" class="dim"></div>
+        <table id="loadTable" class="load"></table>
+      </div>
+    </section>
+  </main>
+  <div id="tip" class="tip" hidden></div>
+  <script type="module" src="perf.js"></script>
+</body>
+</html>

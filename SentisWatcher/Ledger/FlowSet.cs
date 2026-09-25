@@ -131,8 +131,11 @@ namespace SentisWatcher.Ledger
             return result;
         }
 
-        /// <summary>Room for float rounding in the game's own sums: a thousandth, and at least 10 millionths.</summary>
-        public static long Tolerance(long raw) => Math.Max(10, Math.Abs(raw) / 1000);
+        /// <summary>
+        /// Room for float rounding in the game's own sums: a thousandth, and at least a thousandth of a unit (a
+        /// refinery's small partial batches round off more than that relative to their size).
+        /// </summary>
+        public static long Tolerance(long raw) => Math.Max(1000, Math.Abs(raw) / 1000);
 
         public static string Describe(IEnumerable<KeyValuePair<string, long>> items) =>
             string.Join(", ", items.Select(p => p.Key + " " + (p.Value > 0 ? "+" : "") + (p.Value / 1_000_000.0).ToString("0.######", CultureInfo.InvariantCulture)));

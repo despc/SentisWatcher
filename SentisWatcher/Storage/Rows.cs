@@ -13,6 +13,8 @@ namespace SentisWatcher.Storage
         Alerts,
         Planets,
         Meta,
+        Perf,
+        Load,
     }
 
     /// <summary>
@@ -52,6 +54,8 @@ namespace SentisWatcher.Storage
                 case Table.Alerts: return new[] { "t", "kind", "actor", "entity", "detail" };
                 case Table.Planets: return new[] { "id", "name", "generator", "x", "y", "z", "radius", "min_radius", "max_radius", "atmosphere", "gravity", "t" };
                 case Table.Meta: return new[] { "key", "value" };
+                case Table.Perf: return new[] { "t", "frames", "frame", "frame_max", "physics", "physics_max", "gc0", "gc1", "gc2", "gc_time", "managed_mb", "private_mb", "working_mb", "sim", "players", "blocks" };
+                case Table.Load: return new[] { "t", "kind", "entity", "name", "owner", "owner_name", "frames", "ms", "max_ms" };
                 default: throw new ArgumentOutOfRangeException(nameof(table));
             }
         }
@@ -68,6 +72,8 @@ namespace SentisWatcher.Storage
                 case Table.Alerts: return "alerts";
                 case Table.Planets: return "planets";
                 case Table.Meta: return "meta";
+                case Table.Perf: return "perf";
+                case Table.Load: return "load";
                 default: throw new ArgumentOutOfRangeException(nameof(table));
             }
         }

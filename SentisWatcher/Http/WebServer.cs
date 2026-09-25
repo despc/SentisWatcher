@@ -185,6 +185,8 @@ namespace SentisWatcher.Web
                 case "hotspot": return _data.Hotspot(from, to);
                 case "ledger": return _data.Ledger(q["kind"], L("id"), from, to);
                 case "anomalies": return _data.Anomalies(from, to);
+                case "perf": return _data.Perf(from, to, (int)L("points", 1500));
+                case "load": return _data.Load(from, to, (int)Math.Min(L("top", 100), 1000));
                 case "holdings": return _data.Holdings(q["kind"], L("id"), L("t", now));
                 case "relief": return Http.Relief.Of(L("id"), q["name"]);
                 case "terrain": return Http.Relief.Patch(L("id"), q["name"], D("x"), D("y"), D("z"), D("size"), (int)L("n", 129));
@@ -201,6 +203,7 @@ namespace SentisWatcher.Web
                 case ".js": return "text/javascript; charset=utf-8";
                 case ".css": return "text/css; charset=utf-8";
                 case ".txt": return "text/plain; charset=utf-8";
+                case ".svg": return "image/svg+xml";
                 default: return "application/octet-stream";
             }
         }

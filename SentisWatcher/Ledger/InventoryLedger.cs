@@ -116,7 +116,10 @@ namespace SentisWatcher.Ledger
         {
             var source = kind.StartsWith("load:") ? kind.Substring(5) : kind;
             string alert;
-            if (source.StartsWith("plugin:") || source.StartsWith("mod:") || source == "script") alert = "external_source";
+            // (items a server plugin gives - a reward for time online and the like - are the server's own
+            // doing: recorded as their source, not flagged)
+            if (source.StartsWith("plugin:")) return;
+            if (source.StartsWith("mod:") || source == "script") alert = "external_source";
             else if (source.StartsWith("unknown:")) alert = "unknown_source";
             else return;
             if (!(inventory.Entity is MyEntity entity)) return;
