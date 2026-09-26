@@ -41,6 +41,20 @@
       </div>
 
       <div class="panel">
+        <h3>Компоненты сессии <span class="dim">— системы игры и модов вне гридов и персонажей, мс в среднем кадре за минуту; 10 самых тяжёлых за интервал, остальные вместе; замер одного кадра из 30–90</span></h3>
+        <div id="nComponents" class="dim"></div>
+        <canvas id="cComponents"></canvas>
+        <div id="lComponents" class="legend"></div>
+      </div>
+
+      <div class="panel">
+        <h3>Плагины Torch <span class="dim">— обновление каждого плагина в игровом потоке, мс в среднем кадре за минуту; работа плагинов в своих потоках сюда не входит</span></h3>
+        <div id="nPlugins" class="dim"></div>
+        <canvas id="cPlugins"></canvas>
+        <div id="lPlugins" class="legend"></div>
+      </div>
+
+      <div class="panel">
         <h3>Сборка мусора <span class="dim">— столбики: сборки за точку по поколениям; линия: доля времени в GC, %</span></h3>
         <canvas id="cGc"></canvas>
         <div id="lGc" class="legend"></div>

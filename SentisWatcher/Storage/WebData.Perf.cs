@@ -1,4 +1,5 @@
 using System;
+using System.Data.SQLite;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -90,6 +91,72 @@ namespace SentisWatcher.Storage
             {
                 ["frames"] = report.Frames, ["frame"] = R(report.FrameMs), ["frameMax"] = R(report.FrameMax),
                 ["on"] = SentisWatcherPlugin.Config?.LoadSampling == true, ["kinds"] = kinds,
+            };
+        }
+
+        /// <summary>
+        /// One kind of load (session components, plugins) over time: for each minute row, each one's time in an average
+        /// frame and its worst frame; the <paramref name="top"/> heaviest over the range by name, the others summed.
+        /// </summary>
+        public object LoadSeries(long from, long to, string kind, int top)
+        {
+            var times = new SortedSet<long>();
+            var rows = new List<(long T, string Name, double Ms, double Max)>();
+            foreach (var db in Days(from, to))
+                using (db)
+                {
+                    using (var check = new SQLiteCommand("SELECT 1 FROM sqlite_master WHERE type='table' AND name='load'", db))
+                        if (check.ExecuteScalar() == null) continue;
+                    using (var cmd = new SQLiteCommand("SELECT t, kind, name, ms, max_ms FROM load WHERE t BETWEEN @a AND @b AND (kind=@k OR kind=@total)", db))
+                    {
+                        cmd.Parameters.AddWithValue("@a", from);
+                        cmd.Parameters.AddWithValue("@b", to);
+                        cmd.Parameters.AddWithValue("@k", kind ?? "");
+                        cmd.Parameters.AddWithValue("@total", Recording.LoadSampler.Total);
+                        using (var r = cmd.ExecuteReader())
+                            while (r.Read())
+                            {
+                                var t = r.GetInt64(0);
+                                times.Add(t);
+                                if (r.GetString(1) == Recording.LoadSampler.Total) continue;
+                                rows.Add((t, r.IsDBNull(2) ? "" : r.GetString(2), r.IsDBNull(3) ? 0 : r.GetDouble(3), r.IsDBNull(4) ? 0 : r.GetDouble(4)));
+                            }
+                    }
+                }
+            var t2i = times.Select((t, i) => (t, i)).ToDictionary(p => p.t, p => p.i);
+            var heaviest = rows.GroupBy(r => r.Name).OrderByDescending(g => g.Sum(r => r.Ms)).Take(Math.Max(1, top)).Select(g => g.Key).ToList();
+            var chosen = new HashSet<string>(heaviest);
+            double[] Zeros() => new double[times.Count];
+            var ms = heaviest.ToDictionary(n => n, n => Zeros());
+            var max = heaviest.ToDictionary(n => n, n => Zeros());
+            var others = Zeros();
+            var othersMax = Zeros();
+            foreach (var r in rows)
+            {
+                var i = t2i[r.T];
+                if (chosen.Contains(r.Name))
+                {
+                    ms[r.Name][i] += r.Ms;
+                    max[r.Name][i] = Math.Max(max[r.Name][i], r.Max);
+                }
+                else
+                {
+                    others[i] += r.Ms;
+                    othersMax[i] = Math.Max(othersMax[i], r.Max);
+                }
+            }
+            var series = heaviest.Select(n => new Dictionary<string, object>
+            {
+                ["name"] = n, ["ms"] = ms[n].Select(v => Math.Round(v, 4)).ToList(), ["max"] = max[n].Select(v => R(v)).ToList(),
+            }).ToList();
+            if (rows.Any(r => !chosen.Contains(r.Name)))
+                series.Add(new Dictionary<string, object>
+                {
+                    ["name"] = "", ["ms"] = others.Select(v => Math.Round(v, 4)).ToList(), ["max"] = othersMax.Select(v => R(v)).ToList(),
+                });
+            return new Dictionary<string, object>
+            {
+                ["t"] = times.ToList(), ["series"] = series, ["on"] = SentisWatcherPlugin.Config?.LoadSampling == true,
             };
         }
 

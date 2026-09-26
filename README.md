@@ -225,6 +225,9 @@ API (`/api/…`, JSON, id — строки):
 - `relief?id&name` — рельеф планеты: высоты поверхности относительно среднего радиуса по сетке вершин сферы;
 - `terrain?id&name&x&y&z&size&n` — подробный кусок поверхности вокруг точки (n×n на квадрат size м).
 - `hotspot?from&to` — где в интервале было больше всего событий: центр, число и среднее время.
+- `perf?from&to&points` — нагрузка сервера по времени (кадр, его части, GC, память);
+- `load?from&to&top` — кто нагружал игровой поток за интервал (игроки, гриды, плагины, компоненты сессии, движок);
+- `loadseries?kind&from&to&top` — один вид нагрузки по времени (`kind=component` — компоненты сессии, `plugin` — плагины Torch): по минутам время каждого в среднем кадре и его худший кадр, `top` самых тяжёлых за интервал по имени, остальные — одной строкой без имени. На странице «Производительность» это графики «Компоненты сессии» и «Плагины Torch».
 
 **Страница «Инвентари»** (`ledger.html`, ссылка вверху карты):
 - **Аномалии** за интервал: полоса по времени (красные — то, чего не бывает при честной игре, жёлтые —
@@ -298,7 +301,7 @@ API страницы:
 | `inventories` | `t, entity, inv, grid, owner, items, volume, max_volume, flows`; `items` — `Ore/Iron:1234.5;Component/SteelPlate:10`, `NULL` — инвентаря больше нет; `flows` — откуда изменения с прошлой записи (см. [учёт инвентарей](#учёт-инвентарей)) |
 | `alerts` | `t, kind, actor, entity, detail` |
 | `planets` | `id, name, generator, x, y, z, radius, min_radius, max_radius, atmosphere, gravity, t` — пишутся при старте и в начале суток; `atmosphere` — расстояние от центра, где кончается воздух (0 — атмосферы нет), `gravity` — где кончается гравитация |
-| `perf` | `t, frames, frame, frame_max, physics, physics_max, gc0, gc1, gc2, gc_time, managed_mb, private_mb, working_mb, sim, players, blocks` — нагрузка сервера раз в 5 секунд |
+| `perf` | `t, frames, frame, frame_max, physics, physics_max, gc0, gc1, gc2, gc_time, managed_mb, private_mb, working_mb, sim, players, blocks` — нагрузка сервера раз в 5 секунд. `blocks` — части кадра `имя:среднее:максимум;…` (мс): `entities_before`, `entities_after`, `game_logic`, `session`, `plugins`, `invoke`, `callbacks`, `replication`, `network`, `save`, `other`. Каждая часть — собственное время без вложенных частей (сущности и физика вызываются изнутри компонентов сессии), так что части в сумме дают кадр; `other` — то, что не попало ни в одну. Сохранение включает подготовку замороженных гридов из SentisOptimisations, если он стоит |
 | `load` | `t, kind, entity, name, owner, owner_name, frames, ms, max_ms` — кто нагружал игровой поток, раз в минуту: `kind` — `grid`, `character`, `plugin`, `component`, `system`, `parallel`, `other`, `total` (сколько кадров замерено); `ms` — время в среднем кадре, `max_ms` — худший кадр |
 | `meta` | `schema` — версия схемы, `sun` — направление на солнце `x,y,z` |
 

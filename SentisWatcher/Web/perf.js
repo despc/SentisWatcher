@@ -50,7 +50,7 @@ function chart(canvas, series, opts = {}) {
   const g = canvas.getContext('2d');
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, w, h);
-  const pts = state.points;
+  const pts = opts.points || state.points;
   const left = 46, right = opts.right ? 46 : 12, top = 10, bottom = 22;
   const pw = w - left - right, ph = h - top - bottom;
   const shown = series.filter((s) => !state.hidden[s.key]);
@@ -119,7 +119,7 @@ function chart(canvas, series, opts = {}) {
     }
     g.stroke(); g.setLineDash([]);
   }
-  canvas._chart = { series: shown, x, left, pw };
+  canvas._chart = { series: shown, x, left, pw, pts };
 }
 
 function niceMax(v) {
@@ -145,12 +145,13 @@ function tickLabel(t, span) {
 const tip = $('#tip');
 function hoverChart(canvas, ev) {
   const c = canvas._chart;
-  if (!c || !state.points.length) { tip.hidden = true; return; }
+  const points = c && c.pts ? c.pts : state.points;
+  if (!c || !points.length) { tip.hidden = true; return; }
   const r = canvas.getBoundingClientRect();
   const mx = ev.clientX - r.left;
   let best = 0, bestD = Infinity;
-  for (let i = 0; i < state.points.length; i++) { const d = Math.abs(c.x(i) - mx); if (d < bestD) { bestD = d; best = i; } }
-  const p = state.points[best];
+  for (let i = 0; i < points.length; i++) { const d = Math.abs(c.x(i) - mx); if (d < bestD) { bestD = d; best = i; } }
+  const p = points[best];
   const rows = c.series.map((s) => `<div class="r"><span><span class="sw" style="background:${s.color}"></span>${s.name}</span><b>${num(s.values[best], 3)}${s.unit ? ' ' + s.unit : ''}</b></div>`);
   tip.innerHTML = `<div class="t">${fmt(p.t)}</div>` + rows.join('');
   tip.hidden = false;
@@ -194,12 +195,20 @@ function draw() {
   chart($('#cFrame'), frame, { refs: [{ y: 1000 / 60 }], leftMax: niceMax(Math.max(20, (max(col('frame')) || 0) * 2.5)) });
   legend($('#lFrame'), frame, (s) => ' ' + num(avg(s.values)) + (s.key.endsWith('Max') ? ', макс ' + num(max(s.values)) : ''));
 
-  // the parts of the frame: the physics, the entities before and after it, the rest
+  // the parts of the frame, each without the timed parts inside it; "other" is what none of them took
   const PARTS = [
     ['physics', 'физика (Havok)', '#f5b041'],
     ['entities_before', 'сущности до физики (гриды, блоки, персонажи)', '#5fb3f9'],
     ['entities_after', 'сущности после физики', '#58d68d'],
-    ['other', 'прочее: компоненты сессии, моды, сеть', '#af7ac5'],
+    ['game_logic', 'игровая логика (скрипты модов, логика блоков)', '#f1948a'],
+    ['session', 'компоненты сессии (кроме сущностей и физики)', '#af7ac5'],
+    ['plugins', 'плагины Torch', '#48c9b0'],
+    ['invoke', 'задания из других потоков (Torch, плагины)', '#f7dc6f'],
+    ['callbacks', 'завершение фоновых задач', '#85929e'],
+    ['replication', 'сеть: репликация клиентам', '#5dade2'],
+    ['network', 'сеть: приём и отправка пакетов', '#a9cce3'],
+    ['save', 'сохранение мира (снимок и подготовка к нему)', '#ec7063'],
+    ['other', 'прочее (не размечено)', '#bdc3c7'],
   ];
   const blocks = PARTS.map(([n, name, color]) => ({
     key: 'b:' + n, name, color, unit: 'мс',
@@ -235,6 +244,63 @@ function draw() {
   legend($('#lSim'), sim, (s) => s.key === 'sim' ? ' ' + num(avg(s.values), 2) + ', мин ' + num(min(s.values), 2) : ' макс ' + num(max(s.values), 0));
 
   summary();
+  drawSeriesCharts();
+}
+
+// ------------------------------------------------------------------ session components and plugins over time (/api/loadseries)
+
+// what the game's session components do, for the ones most often seen
+const COMPONENT_NAMES = {
+  'MySector': 'MySector — запуск обновления сущностей (своё время, без самих сущностей)',
+  'MyPhysics': 'MyPhysics — физика (без шага Havok, он в своей части)',
+  'MyEntityComponentUpdater': 'обновление компонентов сущностей',
+  'MySpaceFaunaComponent': 'фауна: появление волков и пауков',
+  'MyEncounterGenerator': 'встречи в космосе (NPC-гриды)',
+  'MyProceduralWorldGenerator': 'процедурные астероиды',
+  'MyAiRvoComponent': 'ИИ: обход препятствий',
+  'MyAIComponent': 'ИИ: боты-животные',
+  'MySessionComponentWarningSystem': 'система предупреждений игрокам',
+  'MyPlanetEnvironmentSessionComponent': 'окружение планет (деревья, кусты)',
+  'MyGamePruningStructure': 'дерево поиска сущностей',
+  'MySessionComponentContainerDropSystem': 'сброс контейнеров с наградами',
+  'MySessionComponentSafeZones': 'безопасные зоны',
+  'MySessionComponentEconomy': 'экономика',
+  'MyGridsStorageSessionComponent': 'хранилище гридов (терминал услуг)',
+  'MySessionComponentWeather': 'погода',
+  'MyTrashRemoval': 'уборка мусора',
+  'MySessionComponentTrash': 'уборка мусора',
+  'MyFloatingObjects': 'плавающие предметы (руда, выброшенное)',
+  'MySectorWeatherComponent': 'погода',
+  'MyPlanetaryEncountersGenerator': 'встречи на планетах (NPC-гриды)',
+  'MyHazardExposureComponent': 'опасности окружения для персонажей',
+};
+function componentName(full) {
+  if (!full) return 'остальные';
+  const short = full.split('.').pop();
+  return COMPONENT_NAMES[short] ? `${COMPONENT_NAMES[short]} <span class="dim">(${short})</span>` : short;
+}
+
+const seriesData = { component: null, plugin: null };
+function drawSeries(kind, canvas, legendEl, nameOf, noteEl) {
+  const d = seriesData[kind];
+  if (!d || !d.t.length) {
+    noteEl.textContent = d && !d.on ? 'Замер выключен (Torch → SentisWatcher → Performance, или !watch load on).' : 'За этот интервал замеров нет.';
+    chart(canvas, [], { points: [] });
+    legendEl.innerHTML = '';
+    return;
+  }
+  noteEl.textContent = '';
+  const pts = d.t.map((t) => ({ t }));
+  const series = d.series.map((s, i) => ({
+    key: kind + ':' + s.name, name: nameOf(s.name), color: s.name ? COLORS[i % COLORS.length] : '#bdc3c7', unit: 'мс',
+    values: s.ms, maxes: s.max,
+  }));
+  chart(canvas, series, { points: pts, leftMax: niceMax(Math.max(0.5, ...series.filter((s) => !state.hidden[s.key]).map((s) => (max(s.values) || 0) * 1.3))) });
+  legend(legendEl, series, (s) => ' ' + num(avg(s.values), 3) + ', худший кадр ' + num(max(s.maxes), 1));
+}
+function drawSeriesCharts() {
+  drawSeries('component', $('#cComponents'), $('#lComponents'), componentName, $('#nComponents'));
+  drawSeries('plugin', $('#cPlugins'), $('#lPlugins'), (n) => n || 'остальные', $('#nPlugins'));
 }
 
 function summary() {
@@ -315,6 +381,11 @@ async function load() {
   draw();
   loadData = await api('load', { from: state.from, to: state.to, top: 200 });
   drawLoad();
+  [seriesData.component, seriesData.plugin] = await Promise.all([
+    api('loadseries', { from: state.from, to: state.to, kind: 'component', top: 10 }),
+    api('loadseries', { from: state.from, to: state.to, kind: 'plugin', top: 10 }),
+  ]);
+  drawSeriesCharts();
   status(state.points.length ? `${state.points.length} точек, ${fmt(state.from)} — ${fmt(state.to)}` : 'Нет записей за интервал');
 }
 

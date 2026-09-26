@@ -187,6 +187,7 @@ namespace SentisWatcher.Web
                 case "anomalies": return _data.Anomalies(from, to);
                 case "perf": return _data.Perf(from, to, (int)L("points", 1500));
                 case "load": return _data.Load(from, to, (int)Math.Min(L("top", 100), 1000));
+                case "loadseries": return _data.LoadSeries(from, to, q["kind"], (int)Math.Min(L("top", 8), 30));
                 case "holdings": return _data.Holdings(q["kind"], L("id"), L("t", now));
                 case "relief": return Http.Relief.Of(L("id"), q["name"]);
                 case "terrain": return Http.Relief.Patch(L("id"), q["name"], D("x"), D("y"), D("z"), D("size"), (int)L("n", 129));

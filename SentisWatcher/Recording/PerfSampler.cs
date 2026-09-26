@@ -14,12 +14,13 @@ namespace SentisWatcher.Recording
     /// <summary>
     /// How hard the server works, every <see cref="Every"/> into the table perf, at a fixed cost whatever the
     /// world holds:
-    ///  * the frame of the game thread and its big parts timed where they start and end - the frame
-    ///    (Game.UpdateInternal), the physics (MyPhysics.Simulate), the entities before and after it
-    ///    (MyEntities.UpdateBeforeSimulation, UpdateAfterSimulation: grids, blocks, characters); the rest of the
-    ///    frame (session components, mods, the network) is what is left. Two timestamps at each, a handful a
-    ///    frame - not the game's own simple profiler, which times every grid (SentisOptimisations switches it
-    ///    off for that);
+    ///  * the frame of the game thread (Game.UpdateInternal) and its parts, each timed where it starts and ends and
+    ///    counted without the timed parts inside it (the entities run inside a session component, the physics is one):
+    ///    the physics, the entities before and after it (grids, blocks, characters), the game logic components (mods'
+    ///    scripts and some blocks'), the other session components, the replication, the network packets, the calls
+    ///    queued from other threads (Torch, plugins), the finished background tasks, Torch's plugins, the save's
+    ///    snapshot; "other" is what none of them took. Two timestamps at each, a few dozen a frame - not the game's
+    ///    own simple profiler, which times every grid;
     ///  * the garbage collector's counts, and its share of the time (the ".NET CLR Memory" performance
     ///    counter), and the memory, read once a second on a thread of their own.
     /// </summary>
@@ -31,8 +32,27 @@ namespace SentisWatcher.Recording
         /// <summary>One row this often.</summary>
         public static readonly TimeSpan Every = TimeSpan.FromSeconds(5);
 
-        /// <summary>The parts of the frame besides the physics, as the blocks column names them.</summary>
-        public const string EntitiesBefore = "entities_before", EntitiesAfter = "entities_after", Other = "other";
+        /// <summary>The rest of the frame, as the blocks column names it.</summary>
+        public const string Other = "other";
+
+        private enum Part
+        {
+            Physics = 0,
+            EntitiesBefore = 1,
+            EntitiesAfter = 2,
+            GameLogic = 3,
+            Session = 4,
+            Replication = 5,
+            Network = 6,
+            Invoke = 7,
+            Callbacks = 8,
+            Plugins = 9,
+            Save = 10,
+            Count
+        }
+
+        /// <summary>The parts as the blocks column names them (the physics has columns of its own too).</summary>
+        private static readonly string[] PartKeys = { "physics", "entities_before", "entities_after", "game_logic", "session", "replication", "network", "invoke", "callbacks", "plugins", "save" };
 
         private sealed class Acc
         {
@@ -43,9 +63,16 @@ namespace SentisWatcher.Recording
         }
 
         // game thread only
-        private static readonly Acc FrameAcc = new Acc(), PhysicsAcc = new Acc(), BeforeAcc = new Acc(), AfterAcc = new Acc(), OtherAcc = new Acc();
-        private static long _frameStart, _physicsStart, _beforeStart, _afterStart;
-        private static long _physicsFrame, _beforeFrame, _afterFrame;       // this frame's so far
+        private static readonly Acc FrameAcc = new Acc(), OtherAcc = new Acc();
+        private static readonly Acc[] PartAcc = Enumerable.Range(0, (int)Part.Count).Select(_ => new Acc()).ToArray();
+        private static readonly long[] PartFrame = new long[(int)Part.Count];      // this frame's own time so far
+        private static long _frameStart;
+        private static Thread _gameThread;
+
+        // the timed calls open now, innermost last: when each started and what the timed calls inside it took
+        private const int MaxDepth = 32;
+        private static readonly long[] OpenStart = new long[MaxDepth], OpenInner = new long[MaxDepth];
+        private static int _depth;
 
         public static void Patch(PatchContext ctx)
         {
@@ -61,29 +88,123 @@ namespace SentisWatcher.Recording
                 }
                 Around(M(typeof(Sandbox.Engine.Platform.Game), "UpdateInternal"), nameof(FrameStart), nameof(FrameEnd));
                 Around(M(typeof(Sandbox.Engine.Physics.MyPhysics), "Simulate"), nameof(PhysicsStart), nameof(PhysicsEnd));
-                Around(M(typeof(Sandbox.Game.Entities.MyEntities), "UpdateBeforeSimulation"), nameof(BeforeStart), nameof(BeforeEnd));
-                Around(M(typeof(Sandbox.Game.Entities.MyEntities), "UpdateAfterSimulation"), nameof(AfterStart), nameof(AfterEnd));
+                Around(M(typeof(Sandbox.Game.Entities.MyEntities), "UpdateBeforeSimulation"), nameof(EntitiesBeforeStart), nameof(EntitiesBeforeEnd));
+                Around(M(typeof(Sandbox.Game.Entities.MyEntities), "UpdateAfterSimulation"), nameof(EntitiesAfterStart), nameof(EntitiesAfterEnd));
+                Around(M(typeof(Sandbox.Game.World.MySession), "UpdateComponents"), nameof(SessionStart), nameof(SessionEnd));
+
+                // the rest where the game has it (a part that is not found stays in "other")
+                Type T(string name) => AppDomain.CurrentDomain.GetAssemblies().Select(a => a.GetType(name, false)).FirstOrDefault(t => t != null);
+                void Optional(string type, string method, string prefix, string suffix, Type[] args = null)
+                {
+                    MethodInfo target = null;
+                    var owner = T(type);
+                    if (owner != null && args != null) target = owner.GetMethod(method, any | BindingFlags.DeclaredOnly, null, args, null);
+                    else if (owner != null)
+                    {
+                        var all = owner.GetMethods(any | BindingFlags.DeclaredOnly).Where(m => m.Name == method && !m.IsAbstract).ToList();
+                        if (all.Count == 1) target = all[0];
+                    }
+                    if (target == null) { Log.Warn("SentisWatcher: no " + type + "." + method + " to time; it stays in the rest of the frame"); return; }
+                    Around(target, prefix, suffix);
+                }
+                foreach (var logic in new[] { "VRage.Game.Components.MyGameLogic", "Sandbox.Game.Entities.MyGameLogic" })
+                    if (T(logic) != null)
+                    {
+                        Optional(logic, "UpdateBeforeSimulation", nameof(GameLogicStart), nameof(GameLogicEnd), Type.EmptyTypes);
+                        Optional(logic, "UpdateAfterSimulation", nameof(GameLogicStart), nameof(GameLogicEnd), Type.EmptyTypes);
+                        break;
+                    }
+                Optional("VRage.Network.MyReplicationServer", "UpdateBefore", nameof(ReplicationStart), nameof(ReplicationEnd));
+                Optional("VRage.Network.MyReplicationServer", "UpdateAfter", nameof(ReplicationStart), nameof(ReplicationEnd));
+                Optional("VRage.Network.MyReplicationServer", "UpdateClientStateGroups", nameof(ReplicationStart), nameof(ReplicationEnd));
+                Optional("Sandbox.Engine.Multiplayer.MyDedicatedServerBase", "Tick", nameof(ReplicationStart), nameof(ReplicationEnd));
+                Optional("Sandbox.Engine.Networking.MyNetworkReader", "Process", nameof(NetworkStart), nameof(NetworkEnd));
+                Optional("Sandbox.Engine.Multiplayer.MyTransportLayer", "Tick", nameof(NetworkStart), nameof(NetworkEnd));
+                Optional("Sandbox.Engine.Networking.MyGameService", "Update", nameof(NetworkStart), nameof(NetworkEnd));
+                Optional("Sandbox.MySandboxGame", "ProcessInvoke", nameof(InvokeStart), nameof(InvokeEnd));
+                Optional("ParallelTasks.Parallel", "RunCallbacks", nameof(CallbacksStart), nameof(CallbacksEnd));
+                Optional("Torch.Managers.PluginManager", "UpdatePlugins", nameof(PluginsStart), nameof(PluginsEnd));
+                // SentisOptimisations builds the frozen grids of a save over the frames before it: counted with the save
+                if (T("SentisOptimisationsPlugin.Freezer.FrozenGridSaveCache") != null)
+                    Optional("SentisOptimisationsPlugin.Freezer.FrozenGridSaveCache", "FrameSuffix", nameof(SaveStart), nameof(SaveEnd), Type.EmptyTypes);
+                var snapshot = T("Sandbox.Game.World.MySessionSnapshot");
+                var progress = T("Sandbox.Game.World.SaveProgress");
+                if (snapshot != null && progress != null)
+                    Optional("Sandbox.Game.World.MySession", "Save", nameof(SaveStart), nameof(SaveEnd),
+                        new[] { snapshot.MakeByRefType(), typeof(string), typeof(Action<>).MakeGenericType(progress) });
             });
         }
 
-        private static void FrameStart() { _frameStart = Stopwatch.GetTimestamp(); _physicsFrame = _beforeFrame = _afterFrame = 0; LoadSampler.FrameStart(); }
+        private static void FrameStart()
+        {
+            _frameStart = Stopwatch.GetTimestamp();
+            _gameThread = Thread.CurrentThread;
+            _depth = 0;
+            Array.Clear(PartFrame, 0, PartFrame.Length);
+            LoadSampler.FrameStart();
+        }
+
         private static void FrameEnd()
         {
             if (_frameStart == 0) return;
             var frame = Stopwatch.GetTimestamp() - _frameStart;
             FrameAcc.Add(frame);
-            PhysicsAcc.Add(_physicsFrame);
-            BeforeAcc.Add(_beforeFrame);
-            AfterAcc.Add(_afterFrame);
-            OtherAcc.Add(Math.Max(0, frame - _physicsFrame - _beforeFrame - _afterFrame));
+            var parts = 0L;
+            for (var i = 0; i < PartAcc.Length; i++)
+            {
+                PartAcc[i].Add(PartFrame[i]);
+                parts += PartFrame[i];
+            }
+            OtherAcc.Add(Math.Max(0, frame - parts));
+            _frameStart = 0;
             LoadSampler.FrameEnd(frame);
         }
-        private static void PhysicsStart() => _physicsStart = Stopwatch.GetTimestamp();
-        private static void PhysicsEnd() { if (_physicsStart != 0) _physicsFrame += Stopwatch.GetTimestamp() - _physicsStart; }
-        private static void BeforeStart() => _beforeStart = Stopwatch.GetTimestamp();
-        private static void BeforeEnd() { if (_beforeStart != 0) _beforeFrame += Stopwatch.GetTimestamp() - _beforeStart; }
-        private static void AfterStart() => _afterStart = Stopwatch.GetTimestamp();
-        private static void AfterEnd() { if (_afterStart != 0) _afterFrame += Stopwatch.GetTimestamp() - _afterStart; }
+
+        /// <summary>A timed call begins (game thread, inside a frame; anything else is not counted).</summary>
+        private static void Open()
+        {
+            if (_frameStart == 0 || Thread.CurrentThread != _gameThread) return;
+            if (_depth < MaxDepth)
+            {
+                OpenStart[_depth] = Stopwatch.GetTimestamp();
+                OpenInner[_depth] = 0;
+            }
+            _depth++;
+        }
+
+        /// <summary>A timed call ends: its time less the timed calls inside it goes to its part, all of it to its caller's inner time.</summary>
+        private static void Close(Part part)
+        {
+            if (_frameStart == 0 || Thread.CurrentThread != _gameThread || _depth == 0) return;
+            _depth--;
+            if (_depth >= MaxDepth) return;
+            var elapsed = Stopwatch.GetTimestamp() - OpenStart[_depth];
+            PartFrame[(int)part] += Math.Max(0, elapsed - OpenInner[_depth]);
+            if (_depth > 0) OpenInner[_depth - 1] += elapsed;
+        }
+
+        private static void PhysicsStart() => Open();
+        private static void PhysicsEnd() => Close(Part.Physics);
+        private static void EntitiesBeforeStart() => Open();
+        private static void EntitiesBeforeEnd() => Close(Part.EntitiesBefore);
+        private static void EntitiesAfterStart() => Open();
+        private static void EntitiesAfterEnd() => Close(Part.EntitiesAfter);
+        private static void GameLogicStart() => Open();
+        private static void GameLogicEnd() => Close(Part.GameLogic);
+        private static void SessionStart() => Open();
+        private static void SessionEnd() => Close(Part.Session);
+        private static void ReplicationStart() => Open();
+        private static void ReplicationEnd() => Close(Part.Replication);
+        private static void NetworkStart() => Open();
+        private static void NetworkEnd() => Close(Part.Network);
+        private static void InvokeStart() => Open();
+        private static void InvokeEnd() => Close(Part.Invoke);
+        private static void CallbacksStart() => Open();
+        private static void CallbacksEnd() => Close(Part.Callbacks);
+        private static void PluginsStart() => Open();
+        private static void PluginsEnd() => Close(Part.Plugins);
+        private static void SaveStart() => Open();
+        private static void SaveEnd() => Close(Part.Save);
 
         // ------------------------------------------------------------------ gc and memory, off the game thread
 
@@ -195,10 +316,14 @@ namespace SentisWatcher.Recording
             double Avg(Acc a) => a.Count == 0 ? 0 : Ms(a.Ticks) / a.Count;
             double Max(Acc a) => Ms(a.Max);
             var frames = FrameAcc.Count;
-            var blocks = string.Join(";", new[] { (EntitiesBefore, BeforeAcc), (EntitiesAfter, AfterAcc), (Other, OtherAcc) }
+            var physics = PartAcc[(int)Part.Physics];
+            var blocks = string.Join(";", Enumerable.Range(0, PartAcc.Length).Where(i => i != (int)Part.Physics)
+                .Select(i => (PartKeys[i], PartAcc[i])).Concat(new[] { (Other, OtherAcc) })
                 .Select(p => p.Item1 + ":" + F(Avg(p.Item2)) + ":" + F(Max(p.Item2))));
-            var frameAvg = Avg(FrameAcc); var frameMax = Max(FrameAcc); var physicsAvg = Avg(PhysicsAcc); var physicsMax = Max(PhysicsAcc);
-            foreach (var acc in new[] { FrameAcc, PhysicsAcc, BeforeAcc, AfterAcc, OtherAcc }) acc.Clear();
+            var frameAvg = Avg(FrameAcc); var frameMax = Max(FrameAcc); var physicsAvg = Avg(physics); var physicsMax = Max(physics);
+            FrameAcc.Clear();
+            OtherAcc.Clear();
+            foreach (var acc in PartAcc) acc.Clear();
 
             var gc = new int[3];
             for (var g = 0; g < 3; g++)
