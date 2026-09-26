@@ -242,6 +242,8 @@ namespace SentisWatcher.Recording
 
         private void Visit(MyEntity owner, long gridId, long ownerIdentity, long now)
         {
+            // the animals' pockets are no one's
+            if (owner is MyCharacter animal && Wildlife.IsAnimal(animal)) return;
             // the web view shows a block by its name (its type and subtype when it has none); for a
             // block, "owner" of the name is its grid. A character by its player's name, "owner" its identity.
             if (owner is MyCubeBlock named) _recorder.Name(named.EntityId, "block", BlockName(named), gridId);

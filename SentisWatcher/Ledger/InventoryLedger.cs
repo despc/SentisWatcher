@@ -42,6 +42,7 @@ namespace SentisWatcher.Ledger
 
         public void Record(MyInventory inventory, string kind, string item, long raw)
         {
+            if (Wildlife.IsAnimal(inventory)) return;
             lock (_lock)
             {
                 if (!_pending.TryGetValue(inventory, out var pending)) _pending[inventory] = pending = new Pending();
@@ -52,6 +53,7 @@ namespace SentisWatcher.Ledger
         /// <summary>The inventory was just made (its items are loaded now): it had nothing before.</summary>
         public void MarkBorn(MyInventory inventory)
         {
+            if (Wildlife.IsAnimal(inventory)) return;
             lock (_lock)
             {
                 if (!_pending.TryGetValue(inventory, out var pending)) _pending[inventory] = pending = new Pending();

@@ -341,8 +341,11 @@ namespace SentisWatcher.Recording
                 _samples = 0;
             }
             var sim = (double)Sandbox.Game.Multiplayer.Sync.ServerSimulationRatio;
-            var players = Sandbox.Game.World.MySession.Static?.Players?.GetOnlinePlayerCount() ?? 0;
+            // the animals have players of their own: not counted
+            var players = Sandbox.Game.World.MySession.Static?.Players?.GetOnlinePlayers().Count(p => !Wildlife.IsAnimal(p)) ?? 0;
 
+            // the server settling after the world loaded: counted and dropped, not charted
+            if (!Warmup.Over) return;
             recorder.Store.Add(new Row(Table.Perf, Clock.Now, Clock.Now, frames,
                 frameAvg, frameMax, physicsAvg, physicsMax,
                 gc[0], gc[1], gc[2], gcTime, managed, priv, working, sim, players, blocks));

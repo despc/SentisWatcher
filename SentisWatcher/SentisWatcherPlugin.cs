@@ -81,6 +81,7 @@ namespace SentisWatcher
             Sweep = new InventorySweep(recorder);
             _hooks = new EventHooks();
             Recorder.Current = recorder;
+            Warmup.Begin();
             PerfSampler.Start();
             if (LedgerPatches.Booking) InventoryLedger.Current = new InventoryLedger();
             else Log.Warn("SentisWatcher: the inventory ledger is off, its hooks are missing");

@@ -60,7 +60,7 @@ namespace SentisWatcher.Recording
             foreach (var player in MySession.Static.Players.GetOnlinePlayers())
             {
                 var identity = player.Identity?.IdentityId ?? 0;
-                if (identity == 0) continue;
+                if (identity == 0 || Wildlife.IsAnimal(player)) continue;
                 var controlled = player.Controller?.ControlledEntity?.Entity;
                 var character = player.Character;
                 var body = (MyEntity)character ?? controlled;

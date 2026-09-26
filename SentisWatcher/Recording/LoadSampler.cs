@@ -244,7 +244,7 @@ namespace SentisWatcher.Recording
         private static void RecordSpike(long frameTicks)
         {
             var recorder = Recorder.Current;
-            if (recorder == null) return;
+            if (recorder == null || !Warmup.Over) return;
             double Ms(long t) => t * 1000.0 / Stopwatch.Frequency;
             var charged = Touched.Where(e => e.Kind != Parallel && e.Kind != EntityComponent).Sum(e => e.FrameTicks);
             var top = string.Join(";", Touched.OrderByDescending(e => e.FrameTicks).Take(8)
@@ -306,6 +306,8 @@ namespace SentisWatcher.Recording
                 if (!ByEntity.TryGetValue(grid.EntityId, out var e)) ByEntity[grid.EntityId] = e = new Entry { Kind = Grid, Id = grid.EntityId, Name = grid.DisplayName };
                 return e;
             }
+            // the animals all as one line: their time is still the server's, but no one's to blame
+            if (entity is MyCharacter animal && Wildlife.IsAnimal(animal)) return Named(Other, "animals (wolves, spiders)");
             if (entity is MyCharacter character)
             {
                 if (!ByEntity.TryGetValue(character.EntityId, out var e))
@@ -741,7 +743,8 @@ namespace SentisWatcher.Recording
         private static void Flush(Recorder recorder)
         {
             _last = DateTime.UtcNow;
-            if (_frames == 0)
+            // nothing timed, or the server still settling after the world loaded (not charted)
+            if (_frames == 0 || !Warmup.Over)
             {
                 Clear();
                 return;
