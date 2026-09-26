@@ -48,11 +48,14 @@ namespace SentisWatcher.Recording
             Callbacks = 8,
             Plugins = 9,
             Save = 10,
+            Torch = 11,
+            GameLoop = 12,
+            SessionOwn = 13,
             Count
         }
 
         /// <summary>The parts as the blocks column names them (the physics has columns of its own too).</summary>
-        private static readonly string[] PartKeys = { "physics", "entities_before", "entities_after", "game_logic", "session", "replication", "network", "invoke", "callbacks", "plugins", "save" };
+        private static readonly string[] PartKeys = { "physics", "entities_before", "entities_after", "game_logic", "session", "replication", "network", "invoke", "callbacks", "plugins", "save", "torch", "game_loop", "session_own" };
 
         private sealed class Acc
         {
@@ -124,6 +127,15 @@ namespace SentisWatcher.Recording
                 Optional("Sandbox.MySandboxGame", "ProcessInvoke", nameof(InvokeStart), nameof(InvokeEnd));
                 Optional("ParallelTasks.Parallel", "RunCallbacks", nameof(CallbacksStart), nameof(CallbacksEnd));
                 Optional("Torch.Managers.PluginManager", "UpdatePlugins", nameof(PluginsStart), nameof(PluginsEnd));
+                // what was "other": Torch's own frame work (its view models, its collections) without the plugins; the
+                // game loop's own (the platform's memory reads, the stats, the GUI and input, the network monitor);
+                // the session's own (the GPSs, the block limits sent, the ownership requests)
+                Optional("Torch.TorchBase", "Update", nameof(TorchStart), nameof(TorchEnd), Type.EmptyTypes);
+                Optional("Torch.Server.TorchServer", "Update", nameof(TorchStart), nameof(TorchEnd), Type.EmptyTypes);
+                Optional("Sandbox.MySandboxGame", "Update", nameof(GameLoopStart), nameof(GameLoopEnd), Type.EmptyTypes);
+                var timeSpan = T("VRage.Library.Utils.MyTimeSpan");
+                if (timeSpan != null)
+                    Optional("Sandbox.Game.World.MySession", "Update", nameof(SessionOwnStart), nameof(SessionOwnEnd), new[] { timeSpan });
                 // SentisOptimisations builds the frozen grids of a save over the frames before it: counted with the save
                 if (T("SentisOptimisationsPlugin.Freezer.FrozenGridSaveCache") != null)
                     Optional("SentisOptimisationsPlugin.Freezer.FrozenGridSaveCache", "FrameSuffix", nameof(SaveStart), nameof(SaveEnd), Type.EmptyTypes);
@@ -205,6 +217,12 @@ namespace SentisWatcher.Recording
         private static void PluginsEnd() => Close(Part.Plugins);
         private static void SaveStart() => Open();
         private static void SaveEnd() => Close(Part.Save);
+        private static void TorchStart() => Open();
+        private static void TorchEnd() => Close(Part.Torch);
+        private static void GameLoopStart() => Open();
+        private static void GameLoopEnd() => Close(Part.GameLoop);
+        private static void SessionOwnStart() => Open();
+        private static void SessionOwnEnd() => Close(Part.SessionOwn);
 
         // ------------------------------------------------------------------ gc and memory, off the game thread
 

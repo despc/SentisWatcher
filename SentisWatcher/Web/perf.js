@@ -168,7 +168,12 @@ function legend(el, series, extra = () => '') {
     `<label class="${state.hidden[s.key] ? '' : 'on'}" data-key="${s.key}"><input type="checkbox"><span class="sw" style="background:${s.color}"></span>${s.name}<span class="d">${extra(s)}</span></label>`).join('');
   el.querySelectorAll('label').forEach((l) => l.addEventListener('click', (e) => {
     e.preventDefault();
-    state.hidden[l.dataset.key] = !state.hidden[l.dataset.key];
+    const key = l.dataset.key;
+    if (e.ctrlKey || e.metaKey) {
+      // Ctrl+click: only this one shown; again on the only one shown - all of them back
+      const alone = series.every((s) => (s.key === key) !== !!state.hidden[s.key]);
+      for (const s of series) state.hidden[s.key] = alone ? false : s.key !== key;
+    } else state.hidden[key] = !state.hidden[key];
     draw();
   }));
 }
@@ -208,7 +213,10 @@ function draw() {
     ['replication', 'сеть: репликация клиентам', '#5dade2'],
     ['network', 'сеть: приём и отправка пакетов', '#a9cce3'],
     ['save', 'сохранение мира (снимок и подготовка к нему)', '#ec7063'],
-    ['other', 'прочее (не размечено)', '#bdc3c7'],
+    ['torch', 'Torch (сам, без плагинов: его окно, коллекции, счётчики)', '#e59866'],
+    ['game_loop', 'цикл игры (память платформы, статистика, GUI и ввод, монитор сети)', '#76d7c4'],
+    ['session_own', 'сессия сама (GPS, лимиты блоков, запросы владения)', '#d7bde2'],
+    ['other', 'прочее (кадр движка: рендер-прокси, профайлер игры)', '#bdc3c7'],
   ];
   const blocks = PARTS.map(([n, name, color]) => ({
     key: 'b:' + n, name, color, unit: 'мс',

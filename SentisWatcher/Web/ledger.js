@@ -380,6 +380,18 @@ function renderLegend() {
       <span class="sw" style="background:${state.shown.has(i) ? colorOf(i) : 'transparent'};border:1px solid ${colorOf(i)}"></span>
       ${esc(itemName(i))} <span class="d ${delta > 0 ? 'plus' : delta < 0 ? 'minus' : ''}">${delta ? signed(delta) : ''}</span></label>`;
   }).join('');
+  for (const label of $('#legend').querySelectorAll('label')) {
+    label.addEventListener('click', (e) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      // Ctrl+click: only this item shown; again on the only one shown - all the listed items back
+      e.preventDefault();
+      const item = label.querySelector('input').dataset.item;
+      const alone = state.shown.size === 1 && state.shown.has(item);
+      state.shown.clear();
+      if (alone) items.forEach((i) => state.shown.add(i)); else state.shown.add(item);
+      renderLegend(); drawChart();
+    });
+  }
   for (const box of $('#legend').querySelectorAll('input')) {
     box.addEventListener('change', () => {
       if (box.checked) state.shown.add(box.dataset.item); else state.shown.delete(box.dataset.item);
