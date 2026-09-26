@@ -134,7 +134,7 @@ namespace SentisWatcher.Web
                         return;
                     }
                     response.AddHeader("Cache-Control", "no-store");
-                    Send(response, 200, "application/json", JsonConvert.SerializeObject(result));
+                    SendJson(response, result);
                     return;
                 }
                 var file = path.Length == 0 ? "index.html" : path.TrimStart('/');
@@ -206,6 +206,22 @@ namespace SentisWatcher.Web
                 case ".svg": return "image/svg+xml";
                 default: return "application/octet-stream";
             }
+        }
+
+        private static readonly Encoding Utf8 = new UTF8Encoding(false);
+
+        /// <summary>
+        /// An answer of the API written straight into the response as it is serialized: the answers of the charts run
+        /// to hundreds of kilobytes, and as a string and then its bytes each was two large arrays - garbage that only a
+        /// full collection of the server's heap takes away.
+        /// </summary>
+        private static void SendJson(HttpListenerResponse response, object result)
+        {
+            response.StatusCode = 200;
+            response.ContentType = "application/json; charset=utf-8";
+            response.SendChunked = true;
+            using (var writer = new StreamWriter(response.OutputStream, Utf8, 16 * 1024))
+                JsonSerializer.CreateDefault().Serialize(writer, result);
         }
 
         private static void Send(HttpListenerResponse response, int status, string type, string text) =>

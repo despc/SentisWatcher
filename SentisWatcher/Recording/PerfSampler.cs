@@ -113,14 +113,17 @@ namespace SentisWatcher.Recording
         {
             try
             {
-                var process = Process.GetCurrentProcess();
-                var gc = GcTime(process);
+                var gc = GcTime();
+                // the memory of this process from the system directly: Process.PrivateMemorySize64 reads the
+                // information of every process on the machine, thousands of objects a second
+                var counters = new ProcessMemoryCounters { Size = (uint)System.Runtime.InteropServices.Marshal.SizeOf(typeof(ProcessMemoryCounters)) };
+                GetProcessMemoryInfo(GetCurrentProcess(), ref counters, counters.Size);
                 lock (Lock)
                 {
                     _gcTimeSum += gc;
                     _managedSum += GC.GetTotalMemory(false) / 1048576.0;
-                    _privateSum += process.PrivateMemorySize64 / 1048576.0;
-                    _workingSum += process.WorkingSet64 / 1048576.0;
+                    _privateSum += counters.PrivateUsage.ToUInt64() / 1048576.0;
+                    _workingSum += counters.WorkingSetSize.ToUInt64() / 1048576.0;
                     _samples++;
                 }
             }
@@ -134,7 +137,23 @@ namespace SentisWatcher.Recording
         /// The share of the time the collector took since the last sample, from the process's own ".NET CLR
         /// Memory" counter instance (found by its process id: several servers on one machine have #1, #2...).
         /// </summary>
-        private static double GcTime(Process process)
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct ProcessMemoryCounters
+        {
+            public uint Size, PageFaultCount;
+            public UIntPtr PeakWorkingSetSize, WorkingSetSize, QuotaPeakPagedPoolUsage, QuotaPagedPoolUsage,
+                QuotaPeakNonPagedPoolUsage, QuotaNonPagedPoolUsage, PagefileUsage, PeakPagefileUsage, PrivateUsage;
+        }
+
+        [System.Runtime.InteropServices.DllImport("psapi.dll", SetLastError = true)]
+        private static extern bool GetProcessMemoryInfo(IntPtr process, ref ProcessMemoryCounters counters, uint size);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern IntPtr GetCurrentProcess();
+
+        private static readonly int ProcessId = Process.GetCurrentProcess().Id;
+
+        private static double GcTime()
         {
             if (_counterFailed) return 0;
             try
@@ -145,7 +164,7 @@ namespace SentisWatcher.Recording
                     string instance = null;
                     foreach (var name in category.GetInstanceNames())
                         using (var pid = new PerformanceCounter(".NET CLR Memory", "Process ID", name, true))
-                            if ((int)pid.RawValue == process.Id) { instance = name; break; }
+                            if ((int)pid.RawValue == ProcessId) { instance = name; break; }
                     if (instance == null) { _counterFailed = true; Log.Warn("SentisWatcher: no .NET CLR Memory counter for this process; the time in GC is not recorded"); return 0; }
                     _gcTime = new PerformanceCounter(".NET CLR Memory", "% Time in GC", instance, true);
                     _gcTime.NextValue();

@@ -77,14 +77,18 @@ CREATE TABLE IF NOT EXISTS perf(
 CREATE INDEX IF NOT EXISTS perf_by_t ON perf(t);
 CREATE TABLE IF NOT EXISTS load(
   id INTEGER PRIMARY KEY, t INTEGER NOT NULL, kind TEXT NOT NULL, entity INTEGER, name TEXT, owner INTEGER, owner_name TEXT,
-  frames INTEGER, ms REAL, max_ms REAL);
+  frames INTEGER, ms REAL, max_ms REAL, alloc_kb REAL);
 CREATE INDEX IF NOT EXISTS load_by_t ON load(t);
+CREATE TABLE IF NOT EXISTS spikes(
+  id INTEGER PRIMARY KEY, t INTEGER NOT NULL, frame_ms REAL, gc0 INTEGER, gc1 INTEGER, gc2 INTEGER, untimed_ms REAL, top TEXT);
+CREATE INDEX IF NOT EXISTS spikes_by_t ON spikes(t);
 ";
 
         /// <summary>Changes to the files of older versions, each run only where it is missing.</summary>
         public static readonly (string Table, string Column, string Alter)[] Added =
         {
             ("inventories", "flows", "ALTER TABLE inventories ADD COLUMN flows TEXT"),
+            ("load", "alloc_kb", "ALTER TABLE load ADD COLUMN alloc_kb REAL"),
         };
     }
 }

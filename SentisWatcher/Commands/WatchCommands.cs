@@ -90,7 +90,7 @@ namespace SentisWatcher.Commands
             Answer("alerts", (query, from, to) => query.Alerts(from, to, MaxEvents), minutes, 0);
         }
 
-        [Command("load", "!watch load [on|off|burst<seconds>|minutes=10]: who loads the game thread (grids, players, components, plugins); on/off turns the sampling on and off.")]
+        [Command("load", "!watch load [on|off|burst<seconds>[@<ms>]|minutes=10]: who loads the game thread (grids, players, components, plugins); on/off turns the sampling on and off.")]
         [Permission(MyPromoteLevel.Admin)]
         public void Load(string what = "10")
         {
@@ -104,9 +104,12 @@ namespace SentisWatcher.Commands
             }
             if (what.StartsWith("burst"))
             {
-                var seconds = int.TryParse(what.Substring(5), out var s) ? s : 30;
-                Recording.LoadSampler.Burst(seconds);
-                Context.Respond($"Timing every frame for {seconds} s; then !watch load 2");
+                // burst<seconds>[@<ms>]: every frame timed, the ones longer than <ms> written down (spikes; 16.7 by default)
+                var spec = what.Substring(5).Split('@');
+                var seconds = int.TryParse(spec[0], out var s) ? s : 30;
+                var spikeMs = spec.Length > 1 && double.TryParse(spec[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var ms) ? ms : 16.7;
+                Recording.LoadSampler.Burst(seconds, spikeMs);
+                Context.Respond($"Timing every frame for {seconds} s, frames over {spikeMs:0.#} ms written down; then !watch load 2");
                 return;
             }
             if (!int.TryParse(what, out var minutes)) minutes = 10;

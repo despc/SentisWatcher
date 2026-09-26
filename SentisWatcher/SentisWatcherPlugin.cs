@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Diagnostics;
 using System.IO;
 using System.Windows.Controls;
@@ -138,12 +139,19 @@ namespace SentisWatcher
             try
             {
                 LedgerPatches.ResetThread();
-                Sampler?.Tick();
-                Sweep?.Tick();
-                PerfSampler.Tick(recorder);
-                LoadSampler.Tick(recorder);
-                recorder.FlushAggregates();
-                InventoryLedger.Current?.FlushSuspects(recorder);
+                var t = System.Diagnostics.Stopwatch.GetTimestamp();
+                void Part(int i)
+                {
+                    var now = System.Diagnostics.Stopwatch.GetTimestamp();
+                    if (now - t > PartMax[i]) PartMax[i] = now - t;
+                    t = now;
+                }
+                Sampler?.Tick(); Part(0);
+                Sweep?.Tick(); Part(1);
+                PerfSampler.Tick(recorder); Part(2);
+                LoadSampler.Tick(recorder); Part(3);
+                recorder.FlushAggregates(); Part(4);
+                InventoryLedger.Current?.FlushSuspects(recorder); Part(5);
             }
             catch (Exception e)
             {
@@ -152,9 +160,20 @@ namespace SentisWatcher
             Cost.Stop(started);
             if (Cost.Due(DateTime.UtcNow))
             {
-                Log.Info("SentisWatcher: " + Cost.Describe() + "; " + Describe());
+                Log.Info("SentisWatcher: " + Cost.Describe() + " (at most: " + string.Join(", ", PartNames.Select((n, i) =>
+                    n + " " + (PartMax[i] * 1000.0 / System.Diagnostics.Stopwatch.Frequency).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture))) + " ms); " + Describe());
                 Cost.Reset();
+                Array.Clear(PartMax, 0, PartMax.Length);
             }
+        }
+
+        private static readonly string[] PartNames = { "sampler", "sweep", "perf", "load", "aggregates", "ledger", "sampler pass start", "sweep pass start", "sweep pass end" };
+        private static readonly long[] PartMax = new long[9];
+
+        /// <summary>The longest a part of the update took (ticks), for the cost line in the log.</summary>
+        internal static void NotePart(int part, long ticks)
+        {
+            if (ticks > PartMax[part]) PartMax[part] = ticks;
         }
 
         /// <summary>What the plugin costs the game thread in its own update (hooks not counted).</summary>

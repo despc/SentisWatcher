@@ -116,10 +116,12 @@ namespace SentisWatcher.Recording
             if (_cursor >= _pass.Length)
             {
                 if (now - _passStarted < GridPassMs) return;
+                var started = Stopwatch.GetTimestamp();
                 _pass = MyEntities.GetEntities().OfType<MyCubeGrid>().ToArray();
                 _cursor = 0;
                 _passStarted = now;
                 Prune();
+                SentisWatcherPlugin.NotePart(6, Stopwatch.GetTimestamp() - started);
             }
             var watch = Stopwatch.StartNew();
             var budget = (long)(GridBudgetMs * Stopwatch.Frequency / 1000);

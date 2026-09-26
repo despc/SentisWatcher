@@ -258,7 +258,7 @@ function summary() {
 
 const LOAD_TABS = [
   ['player', 'Игроки'], ['grid', 'Гриды'], ['plugin', 'Плагины'], ['component', 'Компоненты сессии'],
-  ['system', 'Движок'], ['parallel', 'Параллельно'], ['other', 'Прочие сущности'], ['character', 'Персонажи'],
+  ['system', 'Движок'], ['entity_component', 'Компоненты сущностей'], ['parallel', 'Параллельно'], ['other', 'Прочие сущности'], ['character', 'Персонажи'],
 ];
 const SYSTEM_NAMES = {
   'physics': 'Физика (Havok)',
@@ -269,6 +269,9 @@ const SYSTEM_NAMES = {
   'entities.invoke_later': 'Отложенные вызовы сущностей',
   'entities.apply_changes': 'Добавление/удаление сущностей в обновлениях',
   'entities.drain_init_work': 'Ожидание фоновой инициализации сущностей',
+  'entities.delete': 'Удаление сущностей',
+  'entities.create': 'Появление сущностей, собранных в фоне',
+  'entities.game_logic': 'Игровая логика сущностей (скрипты модов)',
 };
 let loadData = null, loadTab = 'player';
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));

@@ -13,6 +13,7 @@ using Torch.Managers.PatchManager;
 using VRage.Collections;
 using VRage.Game.Components;
 using VRage.Game.Entity;
+using VRage.Game.Entity.EntityComponents.Interfaces;
 using VRage.ModAPI;
 
 namespace SentisWatcher.Recording
@@ -51,6 +52,7 @@ namespace SentisWatcher.Recording
             public string Kind, Name;
             public long Id, Owner;
             public long Ticks, FrameTicks, Max;
+            public long Alloc, FrameAlloc;
             public bool Touched;
         }
 
@@ -72,7 +74,11 @@ namespace SentisWatcher.Recording
         /// Times every frame for the next <paramref name="seconds"/> (sampling on or off): what a rare long frame
         /// is made of. It costs what the sampling costs, in every frame of it.
         /// </summary>
-        public static void Burst(int seconds) => _burstFrames = Math.Max(0, Math.Min(seconds, 600)) * 60;
+        public static void Burst(int seconds, double spikeMs = DefaultSpikeMs)
+        {
+            _burstFrames = Math.Max(0, Math.Min(seconds, 600)) * 60;
+            _spikeMs = _burstFrames > 0 ? Math.Max(1, spikeMs) : DefaultSpikeMs;
+        }
 
         public static bool Bursting => _burstFrames > 0;
 
@@ -114,6 +120,27 @@ namespace SentisWatcher.Recording
                 c.GetPattern(M(typeof(MySession), "UpdateComponents")).Prefixes.Add(Own(nameof(Components)));
                 c.GetPattern(M(typeof(Torch.Managers.PluginManager), "UpdatePlugins")).Prefixes.Add(Own(nameof(Plugins)));
 
+                // the entity components' updater: its loops too, each component charged to its entity and its type
+                var updater = typeof(VRage.Game.Components.Session.MyEntityComponentUpdater);
+                _ecBefore = F(updater, "m_componentsForUpdateBefore");
+                _ecBefore100 = F(updater, "m_componentsForUpdateBefore100");
+                _ecAfter = F(updater, "m_componentsForUpdateAfter");
+                _ecAfter10 = F(updater, "m_componentsForUpdateAfter10");
+                _ecAfter100 = F(updater, "m_componentsForUpdateAfter100");
+                _ecParallelBefore = F(updater, "m_componentsForParallelUpdateBefore");
+                _ecParallelAfter = F(updater, "m_componentsForParallelUpdateAfter");
+                _ecApplyChanges = M(updater, "ApplyChanges");
+                _ecOnce = M(updater, "UpdateOnceBeforeFrame");
+                _ecParallel = updater.GetMethod("PerformParallelUpdate", any) ?? throw new MissingMethodException("MyEntityComponentUpdater.PerformParallelUpdate");
+                _ecHandlerBefore = updater.GetMethod("ParallelUpdateHandlerBeforeSimulation", any) ?? throw new MissingMethodException("ParallelUpdateHandlerBeforeSimulation");
+                _ecHandlerAfter = updater.GetMethod("ParallelUpdateHandlerAfterSimulation", any) ?? throw new MissingMethodException("ParallelUpdateHandlerAfterSimulation");
+                if (_ecBefore.FieldType != typeof(HashSet<IMyUpdatingEntityComponent>) || _ecAfter10.FieldType != typeof(MyDistributedTypeUpdater<IMyUpdatingEntityComponent>))
+                    throw new InvalidOperationException("the entity components' update lists are not what LoadSampler knows");
+                c.GetPattern(M(updater, "UpdateBeforeSimulation")).Prefixes.Add(Own(nameof(ComponentsBefore)));
+                Around(c, _ecHandlerBefore, nameof(ParallelOneStart), nameof(ParallelComponentEnd));
+                Around(c, _ecHandlerAfter, nameof(ParallelOneStart), nameof(ParallelComponentEnd));
+                c.GetPattern(M(updater, "UpdateAfterSimulation")).Prefixes.Add(Own(nameof(ComponentsAfter)));
+
                 // what is not a loop over something is timed whole
                 Around(c, M(orchestrator, "DispatchOnceBeforeFrame"), nameof(OnceStart), nameof(OnceEnd));
                 Around(c, orchestrator.GetMethod("PerformParallelUpdate", any), nameof(ParallelStart), nameof(ParallelEnd));
@@ -121,10 +148,50 @@ namespace SentisWatcher.Recording
                 Around(c, M(typeof(Sandbox.Engine.Physics.MyPhysics), "Simulate"), nameof(PhysicsStart), nameof(PhysicsEnd));
                 Around(c, M(orchestrator, "ProcessInvokeLater"), nameof(InvokeLaterStart), nameof(InvokeLaterEnd));
                 Around(c, M(typeof(MyEntities), "DrainOutstandingEntityInitWork"), nameof(DrainStart), nameof(DrainEnd));
+                // entities leaving the world, and those made in the background joining it: all in one frame each
+                Around(c, M(typeof(MyEntities), "DeleteRememberedEntities"), nameof(DeleteStart), nameof(DeleteEnd));
+                var creation = typeof(MyEntities).Assembly.GetType("Sandbox.Game.Entities.MyEntityCreationThread");
+                var consume = creation?.GetMethod("ConsumeResult", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (consume != null) Around(c, consume, nameof(CreateStart), nameof(CreateEnd));
+                // the entities' game logic components (mods' scripts among them), updated after the entities
+                var gameLogic = typeof(MyEntity).Assembly.GetType("VRage.Game.Components.MyGameLogic")
+                                ?? typeof(MyEntities).Assembly.GetType("Sandbox.Game.Entities.MyGameLogic");
+                foreach (var name in new[] { "UpdateBeforeSimulation", "UpdateAfterSimulation" })
+                {
+                    var update = gameLogic?.GetMethod(name, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic, null, Type.EmptyTypes, null);
+                    if (update != null) Around(c, update, nameof(GameLogicStart), nameof(GameLogicEnd));
+                }
                 // the parallel updates, each on whatever worker runs it
                 Around(c, orchestrator.GetMethod("ParallelUpdateHandlerBeforeSimulation", any), nameof(ParallelOneStart), nameof(ParallelOneEnd));
                 Around(c, orchestrator.GetMethod("ParallelUpdateHandlerAfterSimulation", any), nameof(ParallelOneStart), nameof(ParallelOneEnd));
                 Around(c, M(orchestrator, "ApplyChanges"), nameof(ApplyStart), nameof(ApplyEnd));
+
+                // the rest of the frame outside the entities: the network, the calls from other threads, ...
+                Type T(string name) => AppDomain.CurrentDomain.GetAssemblies().Select(x => x.GetType(name)).FirstOrDefault(x => x != null);
+                void Section(string type, string method, string prefix, string suffix)
+                {
+                    var found = T(type)?.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
+                        .Where(x => x.Name == method).ToList();
+                    var target = found?.Count == 1 ? found[0] : null;
+                    if (target == null || target.IsAbstract) { NLog.LogManager.GetCurrentClassLogger().Warn($"LoadSampler: no {type}.{method} to time"); return; }
+                    Around(c, target, prefix, suffix);
+                }
+                Section("Sandbox.MySandboxGame", "ProcessInvoke", nameof(InvokeQueueStart), nameof(InvokeQueueEnd));
+                Section("Sandbox.Engine.Networking.MyNetworkReader", "Process", nameof(NetReadStart), nameof(NetReadEnd));
+                Section("Sandbox.Engine.Multiplayer.MyTransportLayer", "Tick", nameof(NetTransportStart), nameof(NetTransportEnd));
+                Section("Sandbox.Engine.Networking.MyGameService", "Update", nameof(GameServiceStart), nameof(GameServiceEnd));
+                Section("Sandbox.Engine.Multiplayer.MyDedicatedServerBase", "Tick", nameof(NetTickStart), nameof(NetTickEnd));
+                Section("VRage.Network.MyReplicationServer", "UpdateBefore", nameof(ReplicationBeforeStart), nameof(ReplicationBeforeEnd));
+                Section("VRage.Network.MyReplicationServer", "UpdateAfter", nameof(ReplicationAfterStart), nameof(ReplicationAfterEnd));
+                Section("VRage.Network.MyReplicationServer", "UpdateClientStateGroups", nameof(ClientStateStart), nameof(ClientStateEnd));
+                Section("ParallelTasks.Parallel", "RunCallbacks", nameof(CallbacksStart), nameof(CallbacksEnd));
+                Section("Sandbox.Game.Multiplayer.MyPlayerCollection", "SendDirtyBlockLimits", nameof(BlockLimitsStart), nameof(BlockLimitsEnd));
+                Section("Sandbox.Graphics.GUI.MyGuiSandbox", "Update", nameof(GuiStart), nameof(GuiEnd));
+                // the frames' containers: their own time is what none of the parts above took
+                Section("Sandbox.MySandboxGame", "Update", nameof(SandboxUpdateStart), nameof(SandboxUpdateEnd));
+                Section("Sandbox.Game.World.MySession", "Update", nameof(SessionUpdateStart), nameof(SessionUpdateEnd));
+                Section("Sandbox.Engine.Platform.Game", "AfterDraw", nameof(AfterDrawStart), nameof(AfterDrawEnd));
+                Section("VRageRender.MyRenderProxy", "BeforeUpdate", nameof(BeforeUpdateStart), nameof(BeforeUpdateEnd));
             });
         }
 
@@ -147,6 +214,7 @@ namespace SentisWatcher.Recording
                 _burstFrames--;
                 _timing = Recorder.Current != null;
                 _nested = 0;
+                GcAtStart();
                 return;
             }
             if (--_countdown > 0) return;
@@ -154,6 +222,36 @@ namespace SentisWatcher.Recording
             if (!Enabled) return;
             _timing = true;
             _nested = 0;
+            GcAtStart();
+        }
+
+        private static readonly int[] GcStart = new int[3];
+        private static void GcAtStart()
+        {
+            for (var g = 0; g < 3; g++) GcStart[g] = GC.CollectionCount(g);
+            AllocStack.Clear();
+            _nestedAlloc = 0;
+            _frameAllocStart = GC.GetAllocatedBytesForCurrentThread();
+        }
+
+        /// <summary>A timed frame longer than this has what it was made of written down (table spikes).</summary>
+        private const double DefaultSpikeMs = 16.7;
+
+        /// <summary>For a burst a lower mark may be asked for: what the frames that stay under 16.7 ms are made of.</summary>
+        private static double _spikeMs = DefaultSpikeMs;
+
+        /// <summary>The frame's own heaviest parts and what none of them took, with the collections in it.</summary>
+        private static void RecordSpike(long frameTicks)
+        {
+            var recorder = Recorder.Current;
+            if (recorder == null) return;
+            double Ms(long t) => t * 1000.0 / Stopwatch.Frequency;
+            var charged = Touched.Where(e => e.Kind != Parallel && e.Kind != EntityComponent).Sum(e => e.FrameTicks);
+            var top = string.Join(";", Touched.OrderByDescending(e => e.FrameTicks).Take(8)
+                .Select(e => e.Kind + ":" + (e.Name ?? "").Replace(";", ",") + "=" + Ms(e.FrameTicks).ToString("0.0", global::System.Globalization.CultureInfo.InvariantCulture)));
+            var t = Clock.Now;
+            recorder.Store.Add(new Row(Table.Spikes, t, t, Ms(frameTicks), GC.CollectionCount(0) - GcStart[0], GC.CollectionCount(1) - GcStart[1],
+                GC.CollectionCount(2) - GcStart[2], Ms(Math.Max(0, frameTicks - charged)), top));
         }
 
         internal static void FrameEnd(long frameTicks)
@@ -163,9 +261,13 @@ namespace SentisWatcher.Recording
             _frames++;
             _frameTicks += frameTicks;
             ChargeParallel();
+            if (frameTicks * 1000.0 / Stopwatch.Frequency > (_burstFrames > 0 ? _spikeMs : DefaultSpikeMs)) RecordSpike(frameTicks);
             if (frameTicks > _frameMax) _frameMax = frameTicks;
+            _frameAlloc += GC.GetAllocatedBytesForCurrentThread() - _frameAllocStart;
             foreach (var e in Touched)
             {
+                e.Alloc += e.FrameAlloc;
+                e.FrameAlloc = 0;
                 e.Ticks += e.FrameTicks;
                 if (e.FrameTicks > e.Max) e.Max = e.FrameTicks;
                 e.FrameTicks = 0;
@@ -180,9 +282,10 @@ namespace SentisWatcher.Recording
             }
         }
 
-        private static void Charge(Entry e, long ticks)
+        private static void Charge(Entry e, long ticks, long alloc = 0)
         {
             e.FrameTicks += ticks;
+            e.FrameAlloc += alloc;
             if (e.Touched) return;
             e.Touched = true;
             Touched.Add(e);
@@ -216,15 +319,28 @@ namespace SentisWatcher.Recording
         private static long Begin(out long nested)
         {
             nested = _nested;
+            // the bytes it allocates too, own likewise: who fills the collector's budget (game thread only)
+            AllocStack.Push((GC.GetAllocatedBytesForCurrentThread(), _nestedAlloc));
             return Stopwatch.GetTimestamp();
         }
 
         private static void End(Entry e, long started, long nested)
         {
             var elapsed = Stopwatch.GetTimestamp() - started;
-            Charge(e, elapsed - (_nested - nested));
+            long alloc = 0;
+            if (AllocStack.Count > 0)
+            {
+                var (allocStart, nestedAlloc) = AllocStack.Pop();
+                var allocated = GC.GetAllocatedBytesForCurrentThread() - allocStart;
+                alloc = allocated - (_nestedAlloc - nestedAlloc);
+                _nestedAlloc = nestedAlloc + allocated;
+            }
+            Charge(e, elapsed - (_nested - nested), alloc);
             _nested = nested + elapsed;
         }
+
+        private static readonly Stack<(long Start, long Nested)> AllocStack = new Stack<(long, long)>();
+        private static long _nestedAlloc, _frameAllocStart, _frameAlloc;
 
         // ------------------------------------------------------------------ the entities: vanilla's loops, timed
 
@@ -323,6 +439,98 @@ namespace SentisWatcher.Recording
             return false;
         }
 
+        // ------------------------------------------------------------------ the entity components' updater, timed
+
+        private static FieldInfo _ecBefore, _ecBefore100, _ecAfter, _ecAfter10, _ecAfter100, _ecParallelBefore, _ecParallelAfter;
+        private static MethodInfo _ecApplyChanges, _ecOnce, _ecParallel, _ecHandlerBefore, _ecHandlerAfter;
+
+        public const string EntityComponent = "entity_component";
+
+        private static void UpdateComponent(IMyUpdatingEntityComponent component, int what)
+        {
+            var started = Begin(out var nested);
+            try
+            {
+                switch (what)
+                {
+                    case B1: component.UpdateBeforeSimulation(); break;
+                    case B100: component.UpdateBeforeSimulation100(); break;
+                    case A1: component.UpdateAfterSimulation(); break;
+                    case A10: component.UpdateAfterSimulation10(); break;
+                    case A100: component.UpdateAfterSimulation100(); break;
+                }
+            }
+            finally
+            {
+                var own = Stopwatch.GetTimestamp() - started - (_nested - nested);
+                // the type too, apart: which kind of component it is that costs
+                Charge(Named(EntityComponent, component.GetType().Name), own);
+                End(component.ParentEntity is MyEntity entity ? Of(entity) : Named(Other, component.GetType().Name), started, nested);
+            }
+        }
+
+        private static void ComponentsParallel(object updater, FieldInfo set, MethodInfo handler) =>
+            Timed("entity_components.parallel", () => _ecParallel.Invoke(updater, new object[] { set.GetValue(updater), handler.CreateDelegate(typeof(Action<IMyUpdatingEntityComponent>), updater) }));
+
+        private static void Timed(string what, Action action)
+        {
+            var started = Begin(out var nested);
+            try { action(); }
+            finally { End(Named(System, what), started, nested); }
+        }
+
+        private static bool ComponentsBefore(object __instance)
+        {
+            if (!_timing) return true;
+            Timed("entity_components.apply_changes", () => _ecApplyChanges.Invoke(__instance, null));
+            Timed("entity_components.once_before_frame", () => _ecOnce.Invoke(__instance, null));
+            ComponentsParallel(__instance, _ecParallelBefore, _ecHandlerBefore);
+            Timed("entity_components.apply_changes", () => _ecApplyChanges.Invoke(__instance, null));
+            foreach (var item in (HashSet<IMyUpdatingEntityComponent>)_ecBefore.GetValue(__instance))
+                if (item.ParentEntity != null && !item.ParentEntity.MarkedForClose && !item.ParentEntity.Closed)
+                    UpdateComponent(item, B1);
+            var before100 = (MyDistributedTypeUpdater<IMyUpdatingEntityComponent>)_ecBefore100.GetValue(__instance);
+            foreach (var item in before100)
+            {
+                var parent = item.ParentEntity;
+                if (parent != null && !parent.MarkedForClose && parent.InScene && (item.NeedsUpdate & MyEntityUpdateEnum.EACH_100TH_FRAME) != 0)
+                    UpdateComponent(item, B100);
+            }
+            before100.Update();
+            return false;
+        }
+
+        private static bool ComponentsAfter(object __instance)
+        {
+            if (!_timing) return true;
+            Timed("entity_components.apply_changes", () => _ecApplyChanges.Invoke(__instance, null));
+            ComponentsParallel(__instance, _ecParallelAfter, _ecHandlerAfter);
+            Timed("entity_components.apply_changes", () => _ecApplyChanges.Invoke(__instance, null));
+            foreach (var item in (HashSet<IMyUpdatingEntityComponent>)_ecAfter.GetValue(__instance))
+            {
+                var parent = item.ParentEntity;
+                if (parent != null && !parent.MarkedForClose && parent.InScene && (item.NeedsUpdate & MyEntityUpdateEnum.EACH_FRAME) != 0)
+                    UpdateComponent(item, A1);
+            }
+            var after10 = (MyDistributedTypeUpdater<IMyUpdatingEntityComponent>)_ecAfter10.GetValue(__instance);
+            foreach (var item in after10)
+            {
+                var parent = item.ParentEntity;
+                if (parent != null && !parent.MarkedForClose && parent.InScene && (item.NeedsUpdate & MyEntityUpdateEnum.EACH_10TH_FRAME) != 0)
+                    UpdateComponent(item, A10);
+            }
+            after10.Update();
+            var after100 = (MyDistributedTypeUpdater<IMyUpdatingEntityComponent>)_ecAfter100.GetValue(__instance);
+            foreach (var item in after100)
+            {
+                var parent = item.ParentEntity;
+                if (parent != null && !parent.MarkedForClose && parent.InScene && (item.NeedsUpdate & MyEntityUpdateEnum.EACH_100TH_FRAME) != 0)
+                    UpdateComponent(item, A100);
+            }
+            after100.Update();
+            return false;
+        }
+
         // ------------------------------------------------------------------ session components and plugins
 
         private static bool Components(MySession __instance)
@@ -410,6 +618,16 @@ namespace SentisWatcher.Recording
         private static void PhysicsStart() { if (_timing) _physicsStart = Begin(out _physicsNested); }
         private static void PhysicsEnd() { if (_timing && _physicsStart != 0) End(Named(System, "physics"), _physicsStart, _physicsNested); _physicsStart = 0; }
 
+        private static long _gameLogicStart, _gameLogicNested;
+        private static void GameLogicStart() { if (_timing) _gameLogicStart = Begin(out _gameLogicNested); }
+        private static void GameLogicEnd() { if (_timing && _gameLogicStart != 0) End(Named(System, "entities.game_logic"), _gameLogicStart, _gameLogicNested); _gameLogicStart = 0; }
+
+        private static long _deleteStart, _deleteNested, _createStart, _createNested;
+        private static void DeleteStart() { if (_timing) _deleteStart = Begin(out _deleteNested); }
+        private static void DeleteEnd() { if (_timing && _deleteStart != 0) End(Named(System, "entities.delete"), _deleteStart, _deleteNested); _deleteStart = 0; }
+        private static void CreateStart() { if (_timing) _createStart = Begin(out _createNested); }
+        private static void CreateEnd() { if (_timing && _createStart != 0) End(Named(System, "entities.create"), _createStart, _createNested); _createStart = 0; }
+
         private static long _drainStart, _drainNested;
         private static void DrainStart() { if (_timing) _drainStart = Begin(out _drainNested); }
         private static void DrainEnd() { if (_timing && _drainStart != 0) End(Named(System, "entities.drain_init_work"), _drainStart, _drainNested); _drainStart = 0; }
@@ -428,10 +646,23 @@ namespace SentisWatcher.Recording
             lock (ParallelLock) ParallelDone.Add((entity, ticks));
         }
 
+        private static readonly List<(IMyUpdatingEntityComponent Component, long Ticks)> ParallelComponentsDone = new List<(IMyUpdatingEntityComponent, long)>();
+
+        private static void ParallelComponentEnd(IMyUpdatingEntityComponent component)
+        {
+            if (!_timing || _oneStart == 0) return;
+            var ticks = Stopwatch.GetTimestamp() - _oneStart;
+            _oneStart = 0;
+            lock (ParallelLock) ParallelComponentsDone.Add((component, ticks));
+        }
+
         private static void ChargeParallel()
         {
             lock (ParallelLock)
             {
+                foreach (var (component, ticks) in ParallelComponentsDone)
+                    Charge(Named(Parallel, "component " + component.GetType().Name), ticks);
+                ParallelComponentsDone.Clear();
                 foreach (var (entity, ticks) in ParallelDone)
                 {
                     var e = entity is MyEntity my ? Of(my) : Named(Other, entity.GetType().Name);
@@ -446,6 +677,54 @@ namespace SentisWatcher.Recording
         private static void InvokeLaterEnd() { if (_timing && _invokeStart != 0) End(Named(System, "entities.invoke_later"), _invokeStart, _invokeNested); _invokeStart = 0; }
         private static void ApplyStart() { if (_timing) _applyStart = Begin(out _applyNested); }
         private static void ApplyEnd() { if (_timing && _applyStart != 0) End(Named(System, "entities.apply_changes"), _applyStart, _applyNested); _applyStart = 0; }
+
+        // the frame outside the entities
+        private static long _invokeQueueStart, _invokeQueueNested;
+        private static void InvokeQueueStart() { if (_timing) _invokeQueueStart = Begin(out _invokeQueueNested); }
+        private static void InvokeQueueEnd() { if (_timing && _invokeQueueStart != 0) End(Named(System, "game.invoke_queue"), _invokeQueueStart, _invokeQueueNested); _invokeQueueStart = 0; }
+        private static long _netReadStart, _netReadNested;
+        private static void NetReadStart() { if (_timing) _netReadStart = Begin(out _netReadNested); }
+        private static void NetReadEnd() { if (_timing && _netReadStart != 0) End(Named(System, "net.read"), _netReadStart, _netReadNested); _netReadStart = 0; }
+        private static long _netTransportStart, _netTransportNested;
+        private static void NetTransportStart() { if (_timing) _netTransportStart = Begin(out _netTransportNested); }
+        private static void NetTransportEnd() { if (_timing && _netTransportStart != 0) End(Named(System, "net.transport"), _netTransportStart, _netTransportNested); _netTransportStart = 0; }
+        private static long _gameServiceStart, _gameServiceNested;
+        private static void GameServiceStart() { if (_timing) _gameServiceStart = Begin(out _gameServiceNested); }
+        private static void GameServiceEnd() { if (_timing && _gameServiceStart != 0) End(Named(System, "net.game_service"), _gameServiceStart, _gameServiceNested); _gameServiceStart = 0; }
+        private static long _netTickStart, _netTickNested;
+        private static void NetTickStart() { if (_timing) _netTickStart = Begin(out _netTickNested); }
+        private static void NetTickEnd() { if (_timing && _netTickStart != 0) End(Named(System, "net.tick"), _netTickStart, _netTickNested); _netTickStart = 0; }
+        private static long _replicationBeforeStart, _replicationBeforeNested;
+        private static void ReplicationBeforeStart() { if (_timing) _replicationBeforeStart = Begin(out _replicationBeforeNested); }
+        private static void ReplicationBeforeEnd() { if (_timing && _replicationBeforeStart != 0) End(Named(System, "net.replication_before"), _replicationBeforeStart, _replicationBeforeNested); _replicationBeforeStart = 0; }
+        private static long _replicationAfterStart, _replicationAfterNested;
+        private static void ReplicationAfterStart() { if (_timing) _replicationAfterStart = Begin(out _replicationAfterNested); }
+        private static void ReplicationAfterEnd() { if (_timing && _replicationAfterStart != 0) End(Named(System, "net.replication_after"), _replicationAfterStart, _replicationAfterNested); _replicationAfterStart = 0; }
+        private static long _clientStateStart, _clientStateNested;
+        private static void ClientStateStart() { if (_timing) _clientStateStart = Begin(out _clientStateNested); }
+        private static void ClientStateEnd() { if (_timing && _clientStateStart != 0) End(Named(System, "net.client_state"), _clientStateStart, _clientStateNested); _clientStateStart = 0; }
+        private static long _callbacksStart, _callbacksNested;
+        private static void CallbacksStart() { if (_timing) _callbacksStart = Begin(out _callbacksNested); }
+        private static void CallbacksEnd() { if (_timing && _callbacksStart != 0) End(Named(System, "parallel.callbacks"), _callbacksStart, _callbacksNested); _callbacksStart = 0; }
+        private static long _blockLimitsStart, _blockLimitsNested;
+        private static void BlockLimitsStart() { if (_timing) _blockLimitsStart = Begin(out _blockLimitsNested); }
+        private static void BlockLimitsEnd() { if (_timing && _blockLimitsStart != 0) End(Named(System, "block_limits"), _blockLimitsStart, _blockLimitsNested); _blockLimitsStart = 0; }
+        private static long _guiStart, _guiNested;
+        private static void GuiStart() { if (_timing) _guiStart = Begin(out _guiNested); }
+        private static void GuiEnd() { if (_timing && _guiStart != 0) End(Named(System, "gui"), _guiStart, _guiNested); _guiStart = 0; }
+
+        private static long _sandboxUpdateStart, _sandboxUpdateNested;
+        private static void SandboxUpdateStart() { if (_timing) _sandboxUpdateStart = Begin(out _sandboxUpdateNested); }
+        private static void SandboxUpdateEnd() { if (_timing && _sandboxUpdateStart != 0) End(Named(System, "game.update_own"), _sandboxUpdateStart, _sandboxUpdateNested); _sandboxUpdateStart = 0; }
+        private static long _sessionUpdateStart, _sessionUpdateNested;
+        private static void SessionUpdateStart() { if (_timing) _sessionUpdateStart = Begin(out _sessionUpdateNested); }
+        private static void SessionUpdateEnd() { if (_timing && _sessionUpdateStart != 0) End(Named(System, "session.update_own"), _sessionUpdateStart, _sessionUpdateNested); _sessionUpdateStart = 0; }
+        private static long _afterDrawStart, _afterDrawNested;
+        private static void AfterDrawStart() { if (_timing) _afterDrawStart = Begin(out _afterDrawNested); }
+        private static void AfterDrawEnd() { if (_timing && _afterDrawStart != 0) End(Named(System, "game.after_draw"), _afterDrawStart, _afterDrawNested); _afterDrawStart = 0; }
+        private static long _beforeUpdateStart, _beforeUpdateNested;
+        private static void BeforeUpdateStart() { if (_timing) _beforeUpdateStart = Begin(out _beforeUpdateNested); }
+        private static void BeforeUpdateEnd() { if (_timing && _beforeUpdateStart != 0) End(Named(System, "render.before_update"), _beforeUpdateStart, _beforeUpdateNested); _beforeUpdateStart = 0; }
 
         // ------------------------------------------------------------------ the rows
 
@@ -470,7 +749,7 @@ namespace SentisWatcher.Recording
             double Ms(long ticks) => ticks * 1000.0 / Stopwatch.Frequency;
             var t = Clock.Now;
             var frames = _frames;
-            recorder.Store.Add(new Row(Table.Load, t, t, Total, 0L, "", 0L, "", frames, Ms(_frameTicks) / frames, Ms(_frameMax)));
+            recorder.Store.Add(new Row(Table.Load, t, t, Total, 0L, "", 0L, "", frames, Ms(_frameTicks) / frames, Ms(_frameMax), _frameAlloc / 1024.0 / frames));
             var players = MySession.Static?.Players;
             foreach (var kind in ByEntity.Values.Concat(ByName.Values).GroupBy(e => e.Kind))
                 foreach (var e in kind.OrderByDescending(e => e.Ticks).Take(TopPerKind))
@@ -484,7 +763,7 @@ namespace SentisWatcher.Recording
                         if (grid.BigOwners.Count > 0) owner = grid.BigOwners[0];
                     }
                     var ownerName = owner != 0 ? players?.TryGetIdentity(owner)?.DisplayName ?? "" : "";
-                    recorder.Store.Add(new Row(Table.Load, t, t, e.Kind, e.Id, name ?? "", owner, ownerName, frames, Ms(e.Ticks) / frames, Ms(e.Max)));
+                    recorder.Store.Add(new Row(Table.Load, t, t, e.Kind, e.Id, name ?? "", owner, ownerName, frames, Ms(e.Ticks) / frames, Ms(e.Max), e.Alloc / 1024.0 / frames));
                 }
             Clear();
         }
@@ -493,6 +772,7 @@ namespace SentisWatcher.Recording
         {
             _frames = 0;
             _frameTicks = _frameMax = 0;
+            _frameAlloc = 0;
             ByEntity.Clear();
             ByName.Clear();
         }

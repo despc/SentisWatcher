@@ -48,7 +48,10 @@ namespace SentisWatcher.Recording
         private readonly List<ItemStack> _stacks = new List<ItemStack>();
         private MyEntity[] _entities = new MyEntity[0];
         private int _entityCursor;
-        private List<MyCubeBlock> _blocks;
+        // the grid's own list of blocks with a model, walked by index within the budget (a grid of thousands of
+        // blocks listed whole in one frame was a spike of milliseconds); a block added or removed meanwhile at worst
+        // is visited on the next pass
+        private VRage.Collections.ListReader<MyCubeBlock>? _blocks;
         private int _blockCursor;
         private long _passStarted = long.MinValue / 2;
         private DateTime _day;
@@ -103,10 +106,12 @@ namespace SentisWatcher.Recording
             {
                 if (_blocks != null)
                 {
-                    if (_blockCursor < _blocks.Count)
+                    var blocks = _blocks.Value;
+                    if (_blockCursor < blocks.Count)
                     {
-                        var block = _blocks[_blockCursor++];
-                        if (!block.MarkedForClose) Visit(block, block.CubeGrid.EntityId, Identities.InventoryOwner(block), now);
+                        var block = blocks[_blockCursor++];
+                        if (block != null && !block.MarkedForClose && (block.HasInventory || block is MyGasTank))
+                            Visit(block, block.CubeGrid.EntityId, Identities.InventoryOwner(block), now);
                         continue;
                     }
                     _blocks = null;
@@ -121,7 +126,7 @@ namespace SentisWatcher.Recording
                 if (entity is MyCubeGrid grid)
                 {
                     if (grid.Physics == null) continue;    // projections
-                    _blocks = grid.GetFatBlocks().Where(b => b.HasInventory || b is MyGasTank).ToList();
+                    _blocks = grid.GetFatBlocks();
                     _blockCursor = 0;
                 }
                 else if (entity.HasInventory)
@@ -152,22 +157,26 @@ namespace SentisWatcher.Recording
 
         private void StartPass(long now)
         {
+            var started = Stopwatch.GetTimestamp();
             _entities = MyEntities.GetEntities().ToArray();
             _entityCursor = 0;
             _blocks = null;
             _passStarted = now;
             _inventories = 0;
             _writtenThisPass = 0;
+            SentisWatcherPlugin.NotePart(7, Stopwatch.GetTimestamp() - started);
         }
 
         private void EndPass()
         {
+            var started = Stopwatch.GetTimestamp();
             LastPassInventories = _inventories;
             LastPassWritten = _writtenThisPass;
             _orphans = InventoryLedger.Current?.TakeOrphans() ?? new Dictionary<(long, int), InventoryLedger.Pending>();
             TakeLastRun();
             _prune = new List<(long, int)>(_seen.Keys.Union(_orphans.Keys));
             _pruneCursor = 0;
+            SentisWatcherPlugin.NotePart(8, Stopwatch.GetTimestamp() - started);
         }
 
         /// <summary>
