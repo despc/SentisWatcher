@@ -44,7 +44,14 @@ namespace SentisWatcher.Ledger
             {
                 var method = trace.GetFrame(i)?.GetMethod();
                 var type = method?.DeclaringType;
-                if (type == null) continue;                 // the patched copies of game methods
+                if (type == null)
+                {
+                    // a game method patched by a plugin runs as a copy of its own, named after it
+                    var patched = FromPatched(method?.Name);
+                    var knownPatched = patched == null ? null : Known(patched.Value.Type, patched.Value.Method);
+                    if (knownPatched != null) return knownPatched;
+                    continue;
+                }
                 var side = Side(type.Assembly);
                 if (side == null) continue;
                 if (side != Game) return side;
@@ -70,6 +77,7 @@ namespace SentisWatcher.Ledger
                 case "MyCampaignSessionComponent":
                 case "MySessionComponentScriptSharedStorage": return "script";
                 case "MyStationResourcesGenerator":
+                case "MyAgentDefinition":
                 case "MyHumanoidBotDefinition":
                 case "MyBotDefinition":
                 case "MySessionComponentEconomy":
@@ -100,6 +108,34 @@ namespace SentisWatcher.Ledger
                 default:
                     return type.StartsWith("MyGuiScreenDebug") || type.StartsWith("MyGuiScreenAdmin") ? "admin" : null;
             }
+        }
+
+        /// <summary>The game types <see cref="Known"/> knows, the longest names first (one may begin with another).</summary>
+        private static readonly string[] KnownTypes =
+        new[]{
+            "MyStoreBlock", "MySessionComponentContractSystem", "MyContract", "MyContractSalvage", "MyContractFind",
+            "MyContractObtainAndDeliver", "MyVisualScriptLogicProvider", "MyCampaignSessionComponent",
+            "MySessionComponentScriptSharedStorage", "MyStationResourcesGenerator", "MyAgentDefinition", "MyHumanoidBotDefinition",
+            "MyBotDefinition", "MySessionComponentEconomy", "MyStation", "MyGlobalEncountersGenerator", "MyEncounterGenerator",
+            "MyNeutralShipSpawner", "MyPirateAntennas", "MyReactor", "MyEntityInventorySpawnComponent", "MySpaceRespawnComponent",
+            "MyRespawnComponentBase", "MyRespawnComponent", "MyMedicalRoom", "MySurvivalKit", "MyTradingManager", "MyPrefabManager",
+            "MyFloatingObjects", "MyFloatingObject", "MyProjectorBase", "MyCubeBuilder", "MyCharacter", "MyCubeGrid",
+        }.OrderByDescending(t => t.Length).ToArray();
+
+        /// <summary>
+        /// The game type and method a patched copy stands for, from its name ("Patched_Sandbox.Game.World.MyPlayerSpawnAt_0":
+        /// the namespace, then the type and the method run together); null when it names none of <see cref="KnownTypes"/>.
+        /// </summary>
+        public static (string Type, string Method)? FromPatched(string name)
+        {
+            if (string.IsNullOrEmpty(name) || !name.StartsWith("Patched_")) return null;
+            var last = name.Substring(name.LastIndexOf('.') + 1);
+            var end = last.LastIndexOf('_');
+            if (end > 0) last = last.Substring(0, end);
+            foreach (var type in KnownTypes)
+                if (last.StartsWith(type, StringComparison.Ordinal) && last.Length > type.Length && char.IsUpper(last[type.Length]))
+                    return (type, last.Substring(type.Length));
+            return null;
         }
 
         /// <summary>Game types that only carry a call through and say nothing about where the items came from.</summary>

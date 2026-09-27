@@ -281,9 +281,10 @@ namespace SentisWatcher.Recording
                 _seen.TryGetValue(key, out var seen);
                 var pending = InventoryLedger.Current?.Take(inventory);
                 var flows = pending?.Flows;
-                // a bag seen for the first time: the inventory of a dead character or a destroyed block the game
-                // moved into it (the same inventory, or one made from its contents) - its contents came from there
-                if (seen == null && owner is MyInventoryBagEntity) BookBag(items, ref flows);
+                // a bag: the inventory of a dead character or a destroyed block the game moves into it (the same
+                // inventory, or one made from its contents - sometimes a bag seen empty first and filled a moment
+                // later): what comes into it past the hooks came from there
+                if (owner is MyInventoryBagEntity) BookBag(owner, ownerIdentity, seen?.Items, items, ref flows);
                 else if (seen != null || pending?.Born == true) Balance(owner, ownerIdentity, seen?.Items, items, ref flows);
 
                 var hash = InventoryCodec.Hash(_stacks, ownerIdentity ^ (gridId << 1));
@@ -323,14 +324,22 @@ namespace SentisWatcher.Recording
                     $"{Describe(owner)} lost with no cause: {LedgerMath.Describe(lost)}");
         }
 
-        /// <summary>A new bag's contents: what the flows booked so far do not account for came with it ("bag").</summary>
-        private static void BookBag(Dictionary<string, long> now, ref FlowSet flows)
+        /// <summary>
+        /// A bag's contents against what it held: what came into it past the flows came with it ("bag"); what went
+        /// out of it past them is "vanished", as for any inventory.
+        /// </summary>
+        private void BookBag(MyEntity owner, long ownerIdentity, Dictionary<string, long> before, Dictionary<string, long> now, ref FlowSet flows)
         {
             if (!LedgerPatches.Booking || InventoryLedger.Current == null) return;
-            var came = LedgerMath.Unexplained(new Dictionary<string, long>(), now, flows);
-            if (came.Count == 0) return;
+            var unexplained = LedgerMath.Unexplained(before ?? new Dictionary<string, long>(), now, flows);
+            if (unexplained.Count == 0) return;
             if (flows == null) flows = new FlowSet();
-            foreach (var pair in came) flows.Add("bag", pair.Key, pair.Value);
+            foreach (var pair in unexplained)
+                flows.Add(pair.Value > 0 ? "bag" : "unexplained", pair.Key, pair.Value);
+            var lost = unexplained.Where(p => -p.Value > LedgerMath.Tolerance(p.Value)).ToList();
+            if (lost.Count > 0)
+                _recorder.Alert("vanished", ownerIdentity, owner.EntityId,
+                    $"{Describe(owner)} lost with no cause: {LedgerMath.Describe(lost)}");
         }
 
         private void Check(MyEntity owner, MyInventory inventory, long ownerIdentity)

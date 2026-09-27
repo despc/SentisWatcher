@@ -116,6 +116,8 @@ namespace SentisWatcher.Ledger
         /// </summary>
         public void Suspicious(string kind, MyInventory inventory, string item, long raw)
         {
+            // the animals' pockets are no one's (a wolf is made with meat in them)
+            if (Wildlife.IsAnimal(inventory)) return;
             var source = kind.StartsWith("load:") ? kind.Substring(5) : kind;
             string alert;
             // (items a server plugin gives - a reward for time online and the like - are the server's own
