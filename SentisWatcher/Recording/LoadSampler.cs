@@ -187,6 +187,24 @@ namespace SentisWatcher.Recording
                 Section("ParallelTasks.Parallel", "RunCallbacks", nameof(CallbacksStart), nameof(CallbacksEnd));
                 Section("Sandbox.Game.Multiplayer.MyPlayerCollection", "SendDirtyBlockLimits", nameof(BlockLimitsStart), nameof(BlockLimitsEnd));
                 Section("Sandbox.Graphics.GUI.MyGuiSandbox", "Update", nameof(GuiStart), nameof(GuiEnd));
+                // the parts of the game loop's and the session's own frame work, each on its own (for the spikes' tops)
+                // the animals' work, each step on its own: their rare peaks (a wolf made, a path looked for)
+                Section("SpaceEngineers.Game.AI.MySpaceFaunaComponent", "SpawnBot", nameof(XFaunaSpawnBotStart), nameof(XFaunaSpawnBotEnd));
+                Section("Sandbox.Game.AI.MyAIComponent", "SpawnAgent", nameof(XAiSpawnAgentStart), nameof(XAiSpawnAgentEnd));
+                Section("Sandbox.Game.AI.MyAIComponent", "PlayerCreated", nameof(XAiPlayerCreatedStart), nameof(XAiPlayerCreatedEnd));
+                Section("Sandbox.Game.AI.MyAIComponent", "CleanUnusedIdentities", nameof(XAiCleanIdentitiesStart), nameof(XAiCleanIdentitiesEnd));
+                Section("Sandbox.Game.AI.Pathfinding.RecastDetour.MyRDPathfinding", "Update", nameof(XAiPathfindingStart), nameof(XAiPathfindingEnd));
+                Section("Sandbox.Game.AI.BehaviorTree.MyBehaviorTreeCollection", "Update", nameof(XAiBehaviorTreesStart), nameof(XAiBehaviorTreesEnd));
+                Section("Sandbox.Game.AI.MyBotCollection", "Update", nameof(XAiBotsStart), nameof(XAiBotsEnd));
+                Section("Sandbox.MySandboxGame", "ProcessRenderOutput", nameof(XRenderOutputStart), nameof(XRenderOutputEnd));
+                Section("Sandbox.Engine.MyGeneralStats", "Update", nameof(XGeneralStatsStart), nameof(XGeneralStatsEnd));
+                Section("Sandbox.Game.GameSystems.MyGameStats", "Update", nameof(XGameStatsStart), nameof(XGameStatsEnd));
+                Section("Sandbox.Engine.Networking.MyNetworkMonitor", "Update", nameof(XNetworkMonitorStart), nameof(XNetworkMonitorEnd));
+                Section("Sandbox.Engine.Multiplayer.MyMultiplayerBase", "ReportReplicatedObjects", nameof(XReportReplicatedStart), nameof(XReportReplicatedEnd));
+                Section("Sandbox.Game.Multiplayer.MyGpsCollection", "Update", nameof(XGpsStart), nameof(XGpsEnd));
+                Section("VRage.Platform.Windows.Sys.MyWindowsSystem", "GetGCMemory", nameof(XGcMemoryStart), nameof(XGcMemoryEnd));
+                Section("Sandbox.Engine.Analytics.MySpaceAnalytics", "Update", nameof(XAnalyticsStart), nameof(XAnalyticsEnd));
+                Section("Torch.Server.TorchServer", "Update", nameof(XTorchStart), nameof(XTorchEnd));
                 // the frames' containers: their own time is what none of the parts above took
                 Section("Sandbox.MySandboxGame", "Update", nameof(SandboxUpdateStart), nameof(SandboxUpdateEnd));
                 Section("Sandbox.Game.World.MySession", "Update", nameof(SessionUpdateStart), nameof(SessionUpdateEnd));
@@ -714,6 +732,54 @@ namespace SentisWatcher.Recording
         private static long _guiStart, _guiNested;
         private static void GuiStart() { if (_timing) _guiStart = Begin(out _guiNested); }
         private static void GuiEnd() { if (_timing && _guiStart != 0) End(Named(System, "gui"), _guiStart, _guiNested); _guiStart = 0; }
+        private static long _xFaunaSpawnBotStart, _xFaunaSpawnBotNested;
+        private static void XFaunaSpawnBotStart() { if (_timing) _xFaunaSpawnBotStart = Begin(out _xFaunaSpawnBotNested); }
+        private static void XFaunaSpawnBotEnd() { if (_timing && _xFaunaSpawnBotStart != 0) End(Named(System, "fauna.spawn_bot"), _xFaunaSpawnBotStart, _xFaunaSpawnBotNested); _xFaunaSpawnBotStart = 0; }
+        private static long _xAiSpawnAgentStart, _xAiSpawnAgentNested;
+        private static void XAiSpawnAgentStart() { if (_timing) _xAiSpawnAgentStart = Begin(out _xAiSpawnAgentNested); }
+        private static void XAiSpawnAgentEnd() { if (_timing && _xAiSpawnAgentStart != 0) End(Named(System, "ai.spawn_agent"), _xAiSpawnAgentStart, _xAiSpawnAgentNested); _xAiSpawnAgentStart = 0; }
+        private static long _xAiPlayerCreatedStart, _xAiPlayerCreatedNested;
+        private static void XAiPlayerCreatedStart() { if (_timing) _xAiPlayerCreatedStart = Begin(out _xAiPlayerCreatedNested); }
+        private static void XAiPlayerCreatedEnd() { if (_timing && _xAiPlayerCreatedStart != 0) End(Named(System, "ai.player_created"), _xAiPlayerCreatedStart, _xAiPlayerCreatedNested); _xAiPlayerCreatedStart = 0; }
+        private static long _xAiCleanIdentitiesStart, _xAiCleanIdentitiesNested;
+        private static void XAiCleanIdentitiesStart() { if (_timing) _xAiCleanIdentitiesStart = Begin(out _xAiCleanIdentitiesNested); }
+        private static void XAiCleanIdentitiesEnd() { if (_timing && _xAiCleanIdentitiesStart != 0) End(Named(System, "ai.clean_identities"), _xAiCleanIdentitiesStart, _xAiCleanIdentitiesNested); _xAiCleanIdentitiesStart = 0; }
+        private static long _xAiPathfindingStart, _xAiPathfindingNested;
+        private static void XAiPathfindingStart() { if (_timing) _xAiPathfindingStart = Begin(out _xAiPathfindingNested); }
+        private static void XAiPathfindingEnd() { if (_timing && _xAiPathfindingStart != 0) End(Named(System, "ai.pathfinding"), _xAiPathfindingStart, _xAiPathfindingNested); _xAiPathfindingStart = 0; }
+        private static long _xAiBehaviorTreesStart, _xAiBehaviorTreesNested;
+        private static void XAiBehaviorTreesStart() { if (_timing) _xAiBehaviorTreesStart = Begin(out _xAiBehaviorTreesNested); }
+        private static void XAiBehaviorTreesEnd() { if (_timing && _xAiBehaviorTreesStart != 0) End(Named(System, "ai.behavior_trees"), _xAiBehaviorTreesStart, _xAiBehaviorTreesNested); _xAiBehaviorTreesStart = 0; }
+        private static long _xAiBotsStart, _xAiBotsNested;
+        private static void XAiBotsStart() { if (_timing) _xAiBotsStart = Begin(out _xAiBotsNested); }
+        private static void XAiBotsEnd() { if (_timing && _xAiBotsStart != 0) End(Named(System, "ai.bots"), _xAiBotsStart, _xAiBotsNested); _xAiBotsStart = 0; }
+        private static long _xRenderOutputStart, _xRenderOutputNested;
+        private static void XRenderOutputStart() { if (_timing) _xRenderOutputStart = Begin(out _xRenderOutputNested); }
+        private static void XRenderOutputEnd() { if (_timing && _xRenderOutputStart != 0) End(Named(System, "render_output"), _xRenderOutputStart, _xRenderOutputNested); _xRenderOutputStart = 0; }
+        private static long _xGeneralStatsStart, _xGeneralStatsNested;
+        private static void XGeneralStatsStart() { if (_timing) _xGeneralStatsStart = Begin(out _xGeneralStatsNested); }
+        private static void XGeneralStatsEnd() { if (_timing && _xGeneralStatsStart != 0) End(Named(System, "general_stats"), _xGeneralStatsStart, _xGeneralStatsNested); _xGeneralStatsStart = 0; }
+        private static long _xGameStatsStart, _xGameStatsNested;
+        private static void XGameStatsStart() { if (_timing) _xGameStatsStart = Begin(out _xGameStatsNested); }
+        private static void XGameStatsEnd() { if (_timing && _xGameStatsStart != 0) End(Named(System, "game_stats"), _xGameStatsStart, _xGameStatsNested); _xGameStatsStart = 0; }
+        private static long _xNetworkMonitorStart, _xNetworkMonitorNested;
+        private static void XNetworkMonitorStart() { if (_timing) _xNetworkMonitorStart = Begin(out _xNetworkMonitorNested); }
+        private static void XNetworkMonitorEnd() { if (_timing && _xNetworkMonitorStart != 0) End(Named(System, "network_monitor"), _xNetworkMonitorStart, _xNetworkMonitorNested); _xNetworkMonitorStart = 0; }
+        private static long _xReportReplicatedStart, _xReportReplicatedNested;
+        private static void XReportReplicatedStart() { if (_timing) _xReportReplicatedStart = Begin(out _xReportReplicatedNested); }
+        private static void XReportReplicatedEnd() { if (_timing && _xReportReplicatedStart != 0) End(Named(System, "report_replicated"), _xReportReplicatedStart, _xReportReplicatedNested); _xReportReplicatedStart = 0; }
+        private static long _xGpsStart, _xGpsNested;
+        private static void XGpsStart() { if (_timing) _xGpsStart = Begin(out _xGpsNested); }
+        private static void XGpsEnd() { if (_timing && _xGpsStart != 0) End(Named(System, "gps"), _xGpsStart, _xGpsNested); _xGpsStart = 0; }
+        private static long _xGcMemoryStart, _xGcMemoryNested;
+        private static void XGcMemoryStart() { if (_timing) _xGcMemoryStart = Begin(out _xGcMemoryNested); }
+        private static void XGcMemoryEnd() { if (_timing && _xGcMemoryStart != 0) End(Named(System, "gc_memory"), _xGcMemoryStart, _xGcMemoryNested); _xGcMemoryStart = 0; }
+        private static long _xAnalyticsStart, _xAnalyticsNested;
+        private static void XAnalyticsStart() { if (_timing) _xAnalyticsStart = Begin(out _xAnalyticsNested); }
+        private static void XAnalyticsEnd() { if (_timing && _xAnalyticsStart != 0) End(Named(System, "analytics"), _xAnalyticsStart, _xAnalyticsNested); _xAnalyticsStart = 0; }
+        private static long _xTorchStart, _xTorchNested;
+        private static void XTorchStart() { if (_timing) _xTorchStart = Begin(out _xTorchNested); }
+        private static void XTorchEnd() { if (_timing && _xTorchStart != 0) End(Named(System, "torch"), _xTorchStart, _xTorchNested); _xTorchStart = 0; }
 
         private static long _sandboxUpdateStart, _sandboxUpdateNested;
         private static void SandboxUpdateStart() { if (_timing) _sandboxUpdateStart = Begin(out _sandboxUpdateNested); }

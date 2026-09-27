@@ -62,6 +62,7 @@ const itemName = (item) => item.split('/').slice(1).join('/') + (item.startsWith
 
 const ALERTS = {
   bypass: ['Изменение в обход учёта', 3],
+  vanished: ['Пропало без причины', 3],
   dupe_transfer: ['Перенос создал предметы', 3],
   production_without_input: ['Производство без входа', 3],
   pickup_excess: ['Подобрано больше, чем лежало', 3],
