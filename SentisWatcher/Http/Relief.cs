@@ -35,7 +35,7 @@ namespace SentisWatcher.Http
             var planet = planets?.Find(p => p.EntityId == id) ?? (name == null ? null : planets?.Find(p => p.StorageName == name));
             if (planet == null)
             {
-                Log.Info($"SentisWatcher: relief of planet {id} {name}: no such planet in the game");
+                if (SentisWatcher.SentisWatcherPlugin.Config?.DiagnosticLogs == true) Log.Info($"SentisWatcher: relief of planet {id} {name}: no such planet in the game");
                 return null;
             }
             var watch = Stopwatch.StartNew();
@@ -63,7 +63,7 @@ namespace SentisWatcher.Http
                 ["id"] = id.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 ["w"] = Width, ["h"] = Height, ["base"] = average, ["relief"] = Convert.ToBase64String(bytes),
             };
-            Log.Info($"SentisWatcher: relief of {planet.StorageName} read in {watch.ElapsedMilliseconds} ms");
+            if (SentisWatcher.SentisWatcherPlugin.Config?.DiagnosticLogs == true) Log.Info($"SentisWatcher: relief of {planet.StorageName} read in {watch.ElapsedMilliseconds} ms");
             lock (Cache) Cache[id] = result;
             return result;
         }

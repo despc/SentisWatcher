@@ -51,7 +51,7 @@ namespace SentisWatcher.Storage
                 Log.Error("Could not load " + path + " (error " + Marshal.GetLastWin32Error() + ")");
                 return;
             }
-            Log.Info("Native SQLite loaded from " + path);
+            if (SentisWatcher.SentisWatcherPlugin.Config?.DiagnosticLogs == true) Log.Info("Native SQLite loaded from " + path);
             _loaded = true;
         }
 

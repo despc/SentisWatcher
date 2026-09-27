@@ -76,7 +76,7 @@ namespace SentisWatcher.Ledger
             // SentisOptimisations' own production (the freezer making up for frozen time), when it is loaded
             var optimisations = AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(a => a.GetName().Name == "SentisOptimisations")
                 ?.GetType("SentisOptimisationsPlugin.Freezer.FreezerPatches");
-            if (optimisations == null) Log.Info("SentisWatcher: SentisOptimisations is not loaded, its production is booked by the call stack");
+            if (optimisations == null) { if (SentisWatcher.SentisWatcherPlugin.Config?.DiagnosticLogs == true) Log.Info("SentisWatcher: SentisOptimisations is not loaded, its production is booked by the call stack"); }
             else
             {
                 Context(ctx, optimisations, "ChangeRequirementsToResults", nameof(OptRefinePrefix), nameof(OptRefineSuffix));

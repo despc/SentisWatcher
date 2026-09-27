@@ -63,7 +63,7 @@ namespace SentisWatcher.Recording
         public void Alert(string kind, long actor, long entity, string detail, long? limitBy = null)
         {
             if (!_alerts.Allow(kind, limitBy ?? entity, DateTime.UtcNow)) return;
-            AlertLog.Warn("ALERT " + kind + " actor=" + actor + " entity=" + entity + ": " + detail);
+            if (SentisWatcher.SentisWatcherPlugin.Config?.DiagnosticLogs == true) AlertLog.Warn("ALERT " + kind + " actor=" + actor + " entity=" + entity + ": " + detail);
             Store.Add(new Row(Table.Alerts, Clock.Now, Clock.Now, kind, actor, entity, detail));
         }
 

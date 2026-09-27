@@ -209,7 +209,7 @@ namespace SentisWatcher.Recording
                 _seen[key] = new Seen { Items = items, Owner = row.Owner, Grid = row.Grid, Day = _day };
                 gone++;
             }
-            if (gone > 0) Log.Info($"SentisWatcher: {gone} inventories went away while the server was down");
+            if (gone > 0) if (SentisWatcher.SentisWatcherPlugin.Config?.DiagnosticLogs == true) Log.Info($"SentisWatcher: {gone} inventories went away while the server was down");
         }
 
         private Dictionary<(long, int), InventoryLedger.Pending> _orphans = new Dictionary<(long, int), InventoryLedger.Pending>();

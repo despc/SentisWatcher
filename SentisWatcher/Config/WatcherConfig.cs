@@ -9,6 +9,7 @@ namespace SentisWatcher.Config
         private bool _enabled = true;
         private int _retentionDays = 14;
         private string _databaseFolder = "";
+        private bool _diagnosticLogs;
 
         /// <summary>Record at all.</summary>
         [DisplayTab(Name = "Recording enabled", GroupName = "Recording", Tab = "Recording", Order = 0,
@@ -68,6 +69,15 @@ namespace SentisWatcher.Config
         {
             get => _loadSampling;
             set => SetValue(ref _loadSampling, value);
+        }
+
+        /// <summary>The plugin's diagnostic lines in the Torch log.</summary>
+        [DisplayTab(Name = "Diagnostic logs", GroupName = "Logs", Tab = "Logs", Order = 0, LiveUpdate = true,
+            Description = "Alerts copied into the Torch log (they are in the web view anyway), the recording cost, reliefs, file clean-up. Off by default; errors are logged anyway.")]
+        public bool DiagnosticLogs
+        {
+            get => _diagnosticLogs;
+            set => SetValue(ref _diagnosticLogs, value);
         }
     }
 }

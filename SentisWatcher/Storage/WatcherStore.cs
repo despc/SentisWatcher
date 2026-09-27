@@ -213,7 +213,7 @@ namespace SentisWatcher.Storage
                 _inserts[table] = command;
             }
             _connectionDay = day;
-            Log.Info("SentisWatcher: writing to " + path);
+            if (SentisWatcher.SentisWatcherPlugin.Config?.DiagnosticLogs == true) Log.Info("SentisWatcher: writing to " + path);
             DeleteExpired(day);
         }
 
@@ -233,7 +233,7 @@ namespace SentisWatcher.Storage
                 {
                     foreach (var part in new[] { file, file + "-wal", file + "-shm" })
                         if (File.Exists(part)) File.Delete(part);
-                    Log.Info("SentisWatcher: deleted " + Path.GetFileName(file) + " (older than " + _retentionDays() + " days)");
+                    if (SentisWatcher.SentisWatcherPlugin.Config?.DiagnosticLogs == true) Log.Info("SentisWatcher: deleted " + Path.GetFileName(file) + " (older than " + _retentionDays() + " days)");
                 }
             }
             catch (Exception e)

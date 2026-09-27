@@ -161,7 +161,7 @@ namespace SentisWatcher
             Cost.Stop(started);
             if (Cost.Due(DateTime.UtcNow))
             {
-                Log.Info("SentisWatcher: " + Cost.Describe() + " (at most: " + string.Join(", ", PartNames.Select((n, i) =>
+                if (SentisWatcher.SentisWatcherPlugin.Config?.DiagnosticLogs == true) Log.Info("SentisWatcher: " + Cost.Describe() + " (at most: " + string.Join(", ", PartNames.Select((n, i) =>
                     n + " " + (PartMax[i] * 1000.0 / System.Diagnostics.Stopwatch.Frequency).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture))) + " ms); " + Describe());
                 Cost.Reset();
                 Array.Clear(PartMax, 0, PartMax.Length);
