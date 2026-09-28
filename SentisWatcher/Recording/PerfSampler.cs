@@ -292,30 +292,56 @@ namespace SentisWatcher.Recording
 
         private static readonly int ProcessId = Process.GetCurrentProcess().Id;
 
+        // The counter instance of this process ("Torch.Server", "Torch.Server#1"...): with two Torch on one machine the
+        // names move between the processes as they start and stop, and the counter then threw - or read the other one.
+        // So the instance is found by process id, checked again once a minute and found again after an error.
+        private static string _gcInstance;
+        private static PerformanceCounter _gcPid;
+        private static DateTime _gcCheckedAt, _gcFailedAt;
+
         private static double GcTime()
         {
             if (_counterFailed) return 0;
             try
             {
+                var now = DateTime.UtcNow;
+                if (_gcTime != null && (now - _gcCheckedAt).TotalSeconds >= 60)
+                {
+                    _gcCheckedAt = now;
+                    if ((int)_gcPid.RawValue != ProcessId) DropGcCounter();
+                }
                 if (_gcTime == null)
                 {
+                    if ((now - _gcFailedAt).TotalSeconds < 60) return 0;
                     var category = new PerformanceCounterCategory(".NET CLR Memory");
                     string instance = null;
                     foreach (var name in category.GetInstanceNames())
                         using (var pid = new PerformanceCounter(".NET CLR Memory", "Process ID", name, true))
                             if ((int)pid.RawValue == ProcessId) { instance = name; break; }
                     if (instance == null) { _counterFailed = true; Log.Warn("SentisWatcher: no .NET CLR Memory counter for this process; the time in GC is not recorded"); return 0; }
+                    _gcInstance = instance;
+                    _gcPid = new PerformanceCounter(".NET CLR Memory", "Process ID", instance, true);
                     _gcTime = new PerformanceCounter(".NET CLR Memory", "% Time in GC", instance, true);
                     _gcTime.NextValue();
+                    _gcCheckedAt = now;
                 }
                 return _gcTime.NextValue();
             }
-            catch (Exception e)
+            catch (Exception)
             {
-                _counterFailed = true;
-                Log.Warn(e, "SentisWatcher: the .NET CLR Memory counters cannot be read; the time in GC is not recorded");
+                // the instance went away under us (another Torch stopped): found again in a minute
+                DropGcCounter();
+                _gcFailedAt = DateTime.UtcNow;
                 return 0;
             }
+        }
+
+        private static void DropGcCounter()
+        {
+            try { _gcTime?.Dispose(); _gcPid?.Dispose(); } catch (Exception) { }
+            _gcTime = null;
+            _gcPid = null;
+            _gcInstance = null;
         }
 
         // ------------------------------------------------------------------ the row
