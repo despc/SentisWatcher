@@ -91,8 +91,7 @@ namespace SentisWatcher
             {
                 try
                 {
-                    Web = new WebServer(Store, Config.WebPort);
-                    Web.Start();
+                    Web = WebServer.StartFor(Store, Config.WebPort, Config.WebLan);
                 }
                 catch (Exception e)
                 {

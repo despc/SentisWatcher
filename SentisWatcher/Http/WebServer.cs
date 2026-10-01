@@ -26,17 +26,23 @@ namespace SentisWatcher.Web
         private Thread _thread;
 
         public int Port { get; }
-        public string Url => "http://127.0.0.1:" + Port + "/";
 
-        public WebServer(WatcherStore store, int port)
+        /// <summary>On every address of the machine (the network), not only 127.0.0.1.</summary>
+        public bool Lan { get; }
+
+        public string Url => "http://127.0.0.1:" + Port + "/";
+        private string Prefix => Lan ? "http://+:" + Port + "/" : Url;
+
+        public WebServer(WatcherStore store, int port, bool lan = false)
         {
             Port = port;
+            Lan = lan;
             _data = new WebData(store) { LiveName = LiveName, LiveBody = LiveBody };
             // the build names embedded files Web/lib\x.js: one separator
             _resources = typeof(WebServer).Assembly.GetManifestResourceNames()
                 .Where(n => n.StartsWith("Web/"))
                 .ToDictionary(n => n.Substring(4).Replace('\\', '/'), n => n, StringComparer.OrdinalIgnoreCase);
-            _listener.Prefixes.Add(Url);
+            _listener.Prefixes.Add(Prefix);
         }
 
         /// <summary>A player's or an entity's name from the running game (web thread: only reads, and any failure is no name).</summary>
@@ -75,7 +81,36 @@ namespace SentisWatcher.Web
             _listener.Start();
             _thread = new Thread(Loop) { IsBackground = true, Name = "SentisWatcher web" };
             _thread.Start();
-            Log.Info("SentisWatcher: web view at " + Url);
+            Log.Info("SentisWatcher: web view at " + (Lan ? "http://" + Environment.MachineName + ":" + Port + "/ (every address of the machine)" : Url));
+        }
+
+        /// <summary>
+        /// The web view, on the network when asked and Windows allows it. A server not run as administrator may listen on
+        /// every address only after the address is reserved for it (netsh http add urlacl); without that the listener
+        /// refuses (access denied), and the view goes on at 127.0.0.1 with the command to run in the log.
+        /// </summary>
+        public static WebServer StartFor(WatcherStore store, int port, bool lan)
+        {
+            if (lan)
+            {
+                var server = new WebServer(store, port, true);
+                try
+                {
+                    server.Start();
+                    return server;
+                }
+                catch (HttpListenerException e) when (e.ErrorCode == 5)
+                {
+                    server.Dispose();
+                    Log.Error("SentisWatcher: the web view may not listen on the network: the address is not reserved for this " +
+                              "server. Run as administrator once: netsh http add urlacl url=http://+:" + port + "/ user=" +
+                              Environment.UserDomainName + "\\" + Environment.UserName + " (watcher_lan.ps1 by the server does it and opens " +
+                              "the firewall port), then restart. Until then the view is on 127.0.0.1 only.");
+                }
+            }
+            var local = new WebServer(store, port);
+            local.Start();
+            return local;
         }
 
         public void Dispose()

@@ -198,7 +198,7 @@ namespace SentisWatcher.Recording
                 Section("Sandbox.Game.AI.MyBotCollection", "Update", nameof(XAiBotsStart), nameof(XAiBotsEnd));
                 Section("Sandbox.MySandboxGame", "ProcessRenderOutput", nameof(XRenderOutputStart), nameof(XRenderOutputEnd));
                 Section("Sandbox.Engine.MyGeneralStats", "Update", nameof(XGeneralStatsStart), nameof(XGeneralStatsEnd));
-                Section("Sandbox.Game.GameSystems.MyGameStats", "Update", nameof(XGameStatsStart), nameof(XGameStatsEnd));
+                Section("Sandbox.Game.MyGameStats", "Update", nameof(XGameStatsStart), nameof(XGameStatsEnd));
                 Section("Sandbox.Engine.Networking.MyNetworkMonitor", "Update", nameof(XNetworkMonitorStart), nameof(XNetworkMonitorEnd));
                 Section("Sandbox.Engine.Multiplayer.MyMultiplayerBase", "ReportReplicatedObjects", nameof(XReportReplicatedStart), nameof(XReportReplicatedEnd));
                 Section("Sandbox.Game.Multiplayer.MyGpsCollection", "Update", nameof(XGpsStart), nameof(XGpsEnd));
@@ -208,7 +208,8 @@ namespace SentisWatcher.Recording
                 // the frames' containers: their own time is what none of the parts above took
                 Section("Sandbox.MySandboxGame", "Update", nameof(SandboxUpdateStart), nameof(SandboxUpdateEnd));
                 Section("Sandbox.Game.World.MySession", "Update", nameof(SessionUpdateStart), nameof(SessionUpdateEnd));
-                Section("Sandbox.Engine.Platform.Game", "AfterDraw", nameof(AfterDrawStart), nameof(AfterDrawEnd));
+                // Game.AfterDraw is abstract: the frame runs the game's own override
+                Section("Sandbox.MySandboxGame", "AfterDraw", nameof(AfterDrawStart), nameof(AfterDrawEnd));
                 Section("VRageRender.MyRenderProxy", "BeforeUpdate", nameof(BeforeUpdateStart), nameof(BeforeUpdateEnd));
             });
         }

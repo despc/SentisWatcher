@@ -41,10 +41,10 @@ namespace SentisWatcher.Config
         private bool _webEnabled = true;
         private int _webPort = 18950;
 
-        /// <summary>The web view of the records, on this machine only (127.0.0.1).</summary>
+        /// <summary>The web view of the records, on this machine (127.0.0.1) unless <see cref="WebLan"/> is on.</summary>
         [DisplayTab(Name = "Web view enabled", GroupName = "Web view", Tab = "Web view", Order = 0,
             Description = "A page with a 3D map, a time slider, the events and the inventories, at http://127.0.0.1:<port>/ - " +
-                          "on this machine only (use a tunnel to see it from elsewhere). Takes effect at the next server start.")]
+                          "on this machine only, or from the network with \"Web view on the network\". Takes effect at the next server start.")]
         public bool WebEnabled
         {
             get => _webEnabled;
@@ -52,11 +52,26 @@ namespace SentisWatcher.Config
         }
 
         [DisplayTab(Name = "Web view port", GroupName = "Web view", Tab = "Web view", Order = 1,
-            Description = "The port of the web view on 127.0.0.1. Takes effect at the next server start.")]
+            Description = "The port of the web view. Takes effect at the next server start.")]
         public int WebPort
         {
             get => _webPort;
             set => SetValue(ref _webPort, value);
+        }
+
+        private bool _webLan;
+
+        /// <summary>The web view on every address of the machine, so other machines of the network open it too.</summary>
+        [DisplayTab(Name = "Web view on the network", GroupName = "Web view", Tab = "Web view", Order = 2,
+            Description = "Listen on every address of the machine (http://<this machine>:<port>/), not only 127.0.0.1. Windows " +
+                          "lets a server that is not run as administrator listen so only after a one-time reservation of the " +
+                          "address (netsh http add urlacl, see watcher_lan.ps1 by the server) and an open firewall port; without " +
+                          "them the view stays on 127.0.0.1 and the log says what to run. The page shows positions and inventories: " +
+                          "only on a network you trust. Takes effect at the next server start.")]
+        public bool WebLan
+        {
+            get => _webLan;
+            set => SetValue(ref _webLan, value);
         }
 
         private bool _loadSampling = true;
