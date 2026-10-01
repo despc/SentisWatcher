@@ -149,7 +149,8 @@ namespace SentisWatcher.Web
             try
             {
                 var request = context.Request;
-                if (!IPAddress.IsLoopback(request.RemoteEndPoint.Address))
+                // on the network (WebLan) any address may ask; otherwise only this machine
+                if (!Lan && !IPAddress.IsLoopback(request.RemoteEndPoint.Address))
                 {
                     Send(response, 403, "text/plain", "local only");
                     return;
@@ -205,13 +206,13 @@ namespace SentisWatcher.Web
             switch (call)
             {
                 case "days": return _data.Days();
-                case "search": return _data.Search(q["q"] ?? "", from, to);
+                case "search": return _data.Search(q["q"] ?? "", from, to, q["inventories"] == "1");
                 case "track": return _data.Track(q["kind"] == "grid" ? "grid" : "player", L("id"), from, to);
                 case "events": return _data.Events(L("id"), from, to);
                 case "near": return _data.Near(D("x"), D("y"), D("z"), Math.Min(D("r"), 100_000), from, to);
                 case "inventory": return _data.Inventory(q["kind"] ?? "entity", L("id"), L("t", now));
                 case "alerts": return _data.Alerts(from, to);
-                case "objects": return _data.Objects(from, to, q["q"]);
+                case "objects": return _data.Objects(from, to, q["q"], withInventory: q["inventories"] == "1");
                 case "moment":
                     return _data.Moment(L("t", now), L("window", 300_000), 2000,
                         q["from"] == null ? (long?)null : from, q["to"] == null ? (long?)null : to);

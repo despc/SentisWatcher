@@ -773,11 +773,12 @@ let options = [];
 let active = -1;
 async function openDropdown() {
   const q = $('#search').value.trim();
-  const all = await api('objects', { from: state.from, to: state.to, q });
+  // only who has an inventory: no grids without one, no wolves or spiders
+  const all = await api('objects', { from: state.from, to: state.to, q, inventories: 1 });
   if ($('#search').value.trim() !== q) return;
   options = [...all.players.map((o) => ({ kind: 'player', id: o.id, name: o.name })), ...all.grids.map((o) => ({ kind: 'grid', id: o.id, name: o.name }))];
   if (q.length >= 2) {
-    const found = await api('search', { q, from: state.from - 7 * 24 * HOUR, to: state.to });
+    const found = await api('search', { q, from: state.from - 7 * 24 * HOUR, to: state.to, inventories: 1 });
     const known = new Set(options.map((o) => o.kind + ':' + o.id));
     for (const o of found) if ((o.kind === 'player' || o.kind === 'grid') && !known.has(o.kind + ':' + o.id)) options.push({ kind: o.kind, id: o.id, name: o.name });
   }

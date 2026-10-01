@@ -283,8 +283,9 @@ namespace SentisWatcher.Recording
                 var flows = pending?.Flows;
                 // a bag: the inventory of a dead character or a destroyed block the game moves into it (the same
                 // inventory, or one made from its contents - sometimes a bag seen empty first and filled a moment
-                // later): what comes into it past the hooks came from there
-                if (owner is MyInventoryBagEntity) BookBag(owner, ownerIdentity, seen?.Items, items, ref flows);
+                // later): what comes into it past the hooks came from there. A character leaves a backpack
+                // (MyInventoryBagEntity), a block with TemporaryContainers on a "Cargo Bag" - another class
+                if (owner is MyInventoryBagEntity || owner is MyCargoContainerInventoryBagEntity) BookBag(owner, ownerIdentity, seen?.Items, items, ref flows);
                 else if (seen != null || pending?.Born == true) Balance(owner, ownerIdentity, seen?.Items, items, ref flows);
 
                 var hash = InventoryCodec.Hash(_stacks, ownerIdentity ^ (gridId << 1));

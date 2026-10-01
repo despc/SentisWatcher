@@ -59,9 +59,44 @@ namespace SentisWatcher.Storage
         /// <summary>The days that have records, newest first.</summary>
         public object Days() => DayFiles.Days(_store.Folder).Select(d => d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)).ToList();
 
-        /// <summary>Players and grids whose name or id matches, in the time range.</summary>
-        public object Search(string q, long from, long to)
+        // the grids and players with an inventory in a range, kept a minute: the search list asks on every key
+        private readonly Dictionary<(long, long), (DateTime At, HashSet<long> Grids, HashSet<long> Players)> _holders =
+            new Dictionary<(long, long), (DateTime, HashSet<long>, HashSet<long>)>();
+
+        /// <summary>
+        /// The grids with an inventory written in the range, and the players with one of a character (their body,
+        /// or what it left behind). Each day's file starts with every inventory, so the days of the range are enough.
+        /// Animals' inventories are never written (InventorySweep), so they are not among the players.
+        /// </summary>
+        private (HashSet<long> Grids, HashSet<long> Players) Holders(long from, long to)
         {
+            var key = (Clock.Day(from).Ticks, Clock.Day(to).Ticks);
+            lock (_holders)
+                if (_holders.TryGetValue(key, out var known) && (DateTime.UtcNow - known.At).TotalSeconds < 60)
+                    return (known.Grids, known.Players);
+            var grids = new HashSet<long>();
+            var players = new HashSet<long>();
+            foreach (var db in Days(from, to))
+                using (db)
+                {
+                    using (var cmd = Command(db, "SELECT DISTINCT grid FROM inventories WHERE grid IS NOT NULL"))
+                    using (var r = cmd.ExecuteReader())
+                        while (r.Read()) grids.Add(r.GetInt64(0));
+                    using (var cmd = Command(db, "SELECT DISTINCT owner FROM inventories WHERE grid IS NULL AND owner IS NOT NULL"))
+                    using (var r = cmd.ExecuteReader())
+                        while (r.Read()) players.Add(r.GetInt64(0));
+                }
+            lock (_holders) _holders[key] = (DateTime.UtcNow, grids, players);
+            return (grids, players);
+        }
+
+        /// <summary>
+        /// Players and grids whose name or id matches, in the time range; with <paramref name="withInventory"/> only
+        /// those with an inventory (the inventories page: no grids without one, no animals).
+        /// </summary>
+        public object Search(string q, long from, long to, bool withInventory = false)
+        {
+            var holders = withInventory ? Holders(from, to) : default;
             var found = new Dictionary<long, Dictionary<string, object>>();
             long.TryParse(q, out var asId);
             foreach (var db in Days(from, to))
@@ -76,7 +111,10 @@ namespace SentisWatcher.Storage
                             ["id"] = Id(r, 0), ["kind"] = r.GetString(1), ["name"] = r.IsDBNull(2) ? "" : r.GetString(2),
                             ["owner"] = Id(r, 3), ["steam"] = Id(r, 4),
                         };
-            return found.Values.OrderBy(v => (string)v["kind"]).ThenBy(v => (string)v["name"]).Take(50).ToList();
+            return found
+                .Where(p => !withInventory || ((string)p.Value["kind"] == "grid" ? holders.Grids : holders.Players).Contains(p.Key))
+                .Select(p => p.Value)
+                .OrderBy(v => (string)v["kind"]).ThenBy(v => (string)v["name"]).Take(50).ToList();
         }
 
         /// <summary>Names of ids (players, grids, blocks), newest known.</summary>
@@ -305,8 +343,9 @@ namespace SentisWatcher.Storage
         /// target - most active first, those whose name or id holds <paramref name="q"/> when it is given;
         /// for the search's drop-down list. At most <paramref name="max"/> of each, and how many there are.
         /// </summary>
-        public object Objects(long from, long to, string q = null, int max = 300)
+        public object Objects(long from, long to, string q = null, int max = 300, bool withInventory = false)
         {
+            var holders = withInventory ? Holders(from, to) : default;
             var players = new Dictionary<long, long[]>();     // id -> positions, events
             var grids = new Dictionary<long, long[]>();
             void Add(Dictionary<long, long[]> into, long id, int what, long count)
@@ -348,6 +387,8 @@ namespace SentisWatcher.Storage
                 var matching = of
                     .Select(p => (Id: p.Key.ToString(CultureInfo.InvariantCulture), Positions: p.Value[0], Events: p.Value[1]))
                     .Where(p => names.ContainsKey(p.Id))       // ids nobody knows (an NPC without a name, id 0) are left out
+                    // the inventories page: only who has an inventory - no grids without one, no animals
+                    .Where(p => !withInventory || (key == "grids" ? holders.Grids : holders.Players).Contains(long.Parse(p.Id, CultureInfo.InvariantCulture)))
                     .Where(p => q == null || p.Id.Contains(q) || names[p.Id].IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0)
                     .ToList();
                 result[key] = matching.OrderByDescending(p => p.Events * 10 + p.Positions).Take(max)

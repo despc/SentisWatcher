@@ -138,6 +138,9 @@ body.is-live .clock::after { content: ' ● live'; color: #58d68d; font-size: 11
 .eventlegend .n { color: var(--dim); font-size: 11px; }
 .hud .hudcheck { display: block; margin-top: 4px; color: var(--dim); pointer-events: auto; cursor: pointer; }
 .hud .hudcheck input { margin: 0 4px 0 0; vertical-align: -2px; }
+.hud .hudspeed { display: flex; align-items: center; gap: 6px; margin-top: 4px; color: var(--dim); pointer-events: auto; }
+.hud .hudspeed input { width: 120px; margin: 0; cursor: pointer; }
+.hud .hudspeed span { min-width: 40px; color: #d8dee9; }
 .hud .keys { color: #6b7584; font-size: 11px; margin-top: 2px; }
 .swatch.inline { display: inline-block; width: 9px; height: 9px; margin-right: 4px; vertical-align: 0; }
 .hud .scale { display: flex; align-items: center; gap: 8px; margin-top: 3px; color: var(--dim); }

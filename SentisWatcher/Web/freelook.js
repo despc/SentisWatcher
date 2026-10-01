@@ -96,7 +96,7 @@ export class FreeLookControls {
   _key(e, down) {
     if (e.ctrlKey || e.altKey || e.metaKey) return;
     const el = e.target;
-    if (down && el?.matches && el.matches('textarea, select, input:not([type=checkbox]):not([type=radio]):not([type=button])')) return;
+    if (down && el?.matches && el.matches('textarea, select, input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=range])')) return;
     if (e.code !== 'KeyQ' && e.code !== 'KeyE') return;
     if (down) this._keys.add(e.code); else this._keys.delete(e.code);
   }

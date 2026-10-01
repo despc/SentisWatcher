@@ -763,7 +763,7 @@ async function applyRelief(body, p) {
   body.material = new THREE.MeshStandardMaterial({ vertexColors: true, map: detail, roughness: 1, metalness: 0 });
   body.geometry.dispose();
   body.geometry = geometry;
-  body.userData.relief = { planet: p, base: relief.base, low, high, style };
+  body.userData.relief = { planet: p, base: relief.base, low, high, style, w: relief.w, h: relief.h };
 }
 
 // ------------------------------------------------------------------ the ground close up
@@ -814,7 +814,7 @@ function buildPatch(body, r, data, asked) {
   // positions relative to the patch's own middle, in doubles until then: float32 stays exact near the camera
   const mid = heights[((n - 1) / 2) * n + (n - 1) / 2] + data.base;
   const ox = cx + ux * mid, oy = cy + uy * mid, oz = cz + uz * mid;
-  const positions = new Float32Array(n * n * 3), uvs = new Float32Array(n * n * 2), colors = new Float32Array(n * n * 3);
+  const positions = new Float32Array(n * n * 3), uvs = new Float32Array(n * n * 2);
   for (let j = 0, k = 0; j < n; j++)
     for (let i = 0; i < n; i++, k++) {
       const a = (i / (n - 1) - 0.5) * size, b = (j / (n - 1) - 0.5) * size;
@@ -826,9 +826,37 @@ function buildPatch(body, r, data, asked) {
       // a detail tile about 25 m across
       uvs[2 * k] = a / 25; uvs[2 * k + 1] = b / 25;
     }
+  // How far the coarse sphere has to sink to stay under this ground: its faces join vertices ~700 m apart and
+  // stand hundreds of metres over a valley, where they hid the ground and the tracks along it as a flat plain
+  // with ragged edges. The ratio that brings the coarse surface over every point of the patch under the real one.
+  let scale = 1;
+  for (let k = 0; k < n * n; k++) {
+    const x = positions[3 * k] + ox - cx, y = positions[3 * k + 1] + oy - cy, z = positions[3 * k + 2] + oz - cz;
+    const real = Math.hypot(x, y, z), coarse = coarseRadius(body, r, x / real, y / real, z / real);
+    if (coarse > 0) scale = Math.min(scale, real / coarse);
+  }
+  scale = Math.min(scale - 3 / r.base, (r.base - Math.min(150, asked.size / 40)) / r.base);
+  // a skirt down from the patch's edge, as deep as the sphere sank there: no step to look through at the edge
+  const edge = [];
+  for (let i = 0; i < n - 1; i++) edge.push(i);
+  for (let j = 0; j < n - 1; j++) edge.push(j * n + n - 1);
+  for (let i = n - 1; i > 0; i--) edge.push((n - 1) * n + i);
+  for (let j = n - 1; j > 0; j--) edge.push(j * n);
+  const total = n * n + edge.length;
+  const allPositions = new Float32Array(total * 3), allUvs = new Float32Array(total * 2);
+  allPositions.set(positions); allUvs.set(uvs);
+  edge.forEach((k, e) => {
+    const x = positions[3 * k] + ox - cx, y = positions[3 * k + 1] + oy - cy, z = positions[3 * k + 2] + oz - cz;
+    const len = Math.hypot(x, y, z), drop = len * (1 - scale) + 30;
+    const s2 = n * n + e;
+    allPositions[3 * s2] = positions[3 * k] - x / len * drop;
+    allPositions[3 * s2 + 1] = positions[3 * k + 1] - y / len * drop;
+    allPositions[3 * s2 + 2] = positions[3 * k + 2] - z / len * drop;
+    allUvs[2 * s2] = uvs[2 * k]; allUvs[2 * s2 + 1] = uvs[2 * k + 1];
+  });
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geometry.setAttribute('position', new THREE.BufferAttribute(allPositions, 3));
+  geometry.setAttribute('uv', new THREE.BufferAttribute(allUvs, 2));
   const index = [];
   for (let j = 0; j < n - 1; j++)
     for (let i = 0; i < n - 1; i++) {
@@ -836,9 +864,15 @@ function buildPatch(body, r, data, asked) {
       const k = j * n + i;
       index.push(k, k + 1, k + n, k + 1, k + n + 1, k + n);
     }
+  // the skirt: each edge vertex to the next and down (drawn from both sides)
+  for (let e = 0; e < edge.length; e++) {
+    const a = edge[e], b = edge[(e + 1) % edge.length], a2 = n * n + e, b2 = n * n + (e + 1) % edge.length;
+    index.push(a, a2, b, b, a2, b2);
+  }
   geometry.setIndex(index);
   geometry.computeVertexNormals();
   const normal = geometry.attributes.normal, v = new THREE.Vector3(), up = new THREE.Vector3(), c = new THREE.Color();
+  const colors = new Float32Array(total * 3);
   for (let k = 0; k < n * n; k++) {
     up.set(positions[3 * k] + ox - cx, positions[3 * k + 1] + oy - cy, positions[3 * k + 2] + oz - cz).normalize();
     v.fromBufferAttribute(normal, k);
@@ -846,18 +880,51 @@ function buildPatch(body, r, data, asked) {
     groundColor(r.style, (heights[k] - r.low) / Math.max(1, r.high - r.low), v.dot(up), hash01(k * 7.13), c);
     colors[3 * k] = c.r; colors[3 * k + 1] = c.g; colors[3 * k + 2] = c.b;
   }
+  edge.forEach((k, e) => { colors.copyWithin(3 * (n * n + e), 3 * k, 3 * k + 3); });
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  // the edges fade into the sphere below instead of ending in a step
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, map: groundDetail(), roughness: 1, metalness: 0,
-    polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+    side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(ox - state.origin.x, oy - state.origin.y, oz - state.origin.z);
   dropPatch();
   patchGroup.add(mesh);
-  // the coarse sphere sinks a little under the detail: between its far-apart vertices it can stand above
-  // the real ground of a valley and hide it
-  body.scale.setScalar((r.base - Math.min(150, asked.size / 40)) / r.base);
+  body.scale.setScalar(scale);
   patch = { planetId: r.planet.id, x: asked.x, y: asked.y, z: asked.z, size: asked.size, mesh, body };
+}
+
+// The coarse sphere's radius along a direction from the planet's centre: the face of the page's SphereGeometry
+// (w x h segments, three.js's layout and triangles) the direction goes through, the ray met with it.
+function coarseRadius(body, r, dx, dy, dz) {
+  const at = body.geometry.attributes.position, w = r.w, h = r.h;
+  const theta = Math.acos(Math.max(-1, Math.min(1, dy)));
+  let phi = Math.atan2(dz, -dx); if (phi < 0) phi += 2 * Math.PI;
+  const iy = Math.min(h - 1, Math.floor(theta / Math.PI * h)), ix = Math.min(w - 1, Math.floor(phi / (2 * Math.PI) * w));
+  const g = (y, x) => y * (w + 1) + x;
+  const a = g(iy, ix + 1), b = g(iy, ix), c = g(iy + 1, ix), d = g(iy + 1, ix + 1);
+  let best = 0;
+  for (const [p, q, s] of [[a, b, d], [b, c, d]]) best = Math.max(best, rayTriangle(dx, dy, dz, at, p, q, s));
+  if (best > 0) return best;
+  // on a seam between faces: the highest of the cell's corners
+  for (const k of [a, b, c, d]) best = Math.max(best, Math.hypot(at.getX(k), at.getY(k), at.getZ(k)));
+  return best;
+}
+
+// Moller-Trumbore from the origin along (dx, dy, dz): the distance to the triangle, or 0.
+function rayTriangle(dx, dy, dz, at, i0, i1, i2) {
+  const x0 = at.getX(i0), y0 = at.getY(i0), z0 = at.getZ(i0);
+  const e1x = at.getX(i1) - x0, e1y = at.getY(i1) - y0, e1z = at.getZ(i1) - z0;
+  const e2x = at.getX(i2) - x0, e2y = at.getY(i2) - y0, e2z = at.getZ(i2) - z0;
+  const px = dy * e2z - dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y - dy * e2x;
+  const det = e1x * px + e1y * py + e1z * pz;
+  if (Math.abs(det) < 1e-9) return 0;
+  const inv = 1 / det, tx = -x0, ty = -y0, tz = -z0;
+  const u = (tx * px + ty * py + tz * pz) * inv;
+  if (u < -1e-6 || u > 1 + 1e-6) return 0;
+  const qx = ty * e1z - tz * e1y, qy = tz * e1x - tx * e1z, qz = tx * e1y - ty * e1x;
+  const v = (dx * qx + dy * qy + dz * qz) * inv;
+  if (v < -1e-6 || u + v > 1 + 1e-6) return 0;
+  const t = (e2x * qx + e2y * qy + e2z * qz) * inv;
+  return t > 0 ? t : 0;
 }
 
 function dropPatch() {
@@ -1996,7 +2063,27 @@ function fly(now) {
 // grows with the distance to what is looked at, so a ship and a planet both take a few seconds.
 const MOVE_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyC'];
 const keysDown = new Set();
-const typing = (el) => !!el?.matches && (el.matches('textarea, select, input:not([type=checkbox]):not([type=radio]):not([type=button])'));
+const typing = (el) => !!el?.matches && (el.matches('textarea, select, input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=range])'));
+
+// The speed of the keys: a share of the distance to what is looked at, a second - on a log scale, from 1% to 3x.
+// Kept in this browser (a convenience: without storage it starts at the default).
+const SPEED_KEY = 'watcher.moveSpeed';
+let moveSpeed = 0.2;
+function showMoveSpeed() {
+  const share = moveSpeed;
+  $('#moveSpeedText').textContent = share >= 1 ? '×' + num(share, share < 10 ? 1 : 0) : num(share * 100, share < 0.1 ? 1 : 0) + '%';
+}
+try {
+  const kept = Number(localStorage.getItem(SPEED_KEY));
+  if (kept > 0) { moveSpeed = kept; $('#moveSpeed').value = String(Math.log10(kept)); }
+} catch (e) { /* no storage: the default */ }
+moveSpeed = Math.pow(10, Number($('#moveSpeed').value));
+showMoveSpeed();
+$('#moveSpeed').addEventListener('input', () => {
+  moveSpeed = Math.pow(10, Number($('#moveSpeed').value));
+  showMoveSpeed();
+  try { localStorage.setItem(SPEED_KEY, String(moveSpeed)); } catch (e) { /* not kept */ }
+});
 window.addEventListener('keydown', (e) => {
   if (typing(e.target) || e.ctrlKey || e.altKey || e.metaKey) return;
   if (!MOVE_KEYS.includes(e.code)) return;
@@ -2020,7 +2107,7 @@ function moveByKeys(dt) {
   if (keysDown.has('KeyC')) add(1, -1);
   if (!moveV.lengthSq()) return;
   const fast = keysDown.has('Shift');
-  const speed = Math.max(20, camera.position.distanceTo(controls.target)) * (fast ? 3 : 1);
+  const speed = Math.max(20, camera.position.distanceTo(controls.target)) * moveSpeed * (fast ? 3 : 1);
   moveV.normalize().multiplyScalar(speed * Math.min(dt, 100) / 1000);
   camera.position.add(moveV);
   controls.target.add(moveV);
