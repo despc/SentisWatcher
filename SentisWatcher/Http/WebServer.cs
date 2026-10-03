@@ -163,7 +163,15 @@ namespace SentisWatcher.Web
                 var path = request.Url.AbsolutePath.TrimEnd('/');
                 if (path.StartsWith("/api/"))
                 {
+                    Http.Live.GameMs = 0;
                     var result = Api(path.Substring(5), request.QueryString);
+                    // what the call took of the game thread (the calls that read the game as it is now)
+                    if (Http.Live.GameMs > 0)
+                    {
+                        response.AddHeader("X-Game-Ms", Http.Live.GameMs.ToString("0.###", CultureInfo.InvariantCulture));
+                        response.AddHeader("X-Game-Frames", Http.Live.GameFrames.ToString(CultureInfo.InvariantCulture));
+                        response.AddHeader("X-Game-Frame-Ms", Http.Live.GameFrameMs.ToString("0.###", CultureInfo.InvariantCulture));
+                    }
                     if (result == null)
                     {
                         Send(response, 404, "application/json", "{\"error\":\"no such call\"}");
@@ -183,6 +191,8 @@ namespace SentisWatcher.Web
                 using (var memory = new MemoryStream())
                 {
                     stream.CopyTo(memory);
+                    // asked again each time: after an update the browser would run the old script from its cache
+                    response.AddHeader("Cache-Control", "no-cache");
                     Send(response, 200, ContentType(file), memory.ToArray());
                 }
             }
@@ -227,6 +237,9 @@ namespace SentisWatcher.Web
                 case "holdings": return _data.Holdings(q["kind"], L("id"), L("t", now));
                 case "relief": return Http.Relief.Of(L("id"), q["name"]);
                 case "terrain": return Http.Relief.Patch(L("id"), q["name"], D("x"), D("y"), D("z"), D("size"), (int)L("n", 129));
+                case "online": return Http.Live.Online();
+                case "structures": return Http.Live.Structures();
+                case "structure": return Http.Live.Structure(L("id"));
                 case "now": return new { now, offsetMinutes = Clock.OffsetMinutes(now), zone = Clock.Zone(now) };
                 default: return null;
             }

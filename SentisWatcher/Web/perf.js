@@ -405,6 +405,27 @@ function setSpan(span) {
   load();
 }
 
+// ------------------------------------------------------------------ who is online: now, not from the records
+
+async function loadOnline() {
+  let players;
+  try {
+    players = await api('online');
+  } catch (e) {
+    $('#nOnline').textContent = '';
+    $('#onlineTable').innerHTML = `<tr><td class="dim">Игра не ответила: ${esc(e.message)}</td></tr>`;
+    return;
+  }
+  $('#nOnline').textContent = '(' + players.length + ')';
+  if (!players.length) { $('#onlineTable').innerHTML = '<tr><td class="dim">Никого нет.</td></tr>'; return; }
+  $('#onlineTable').innerHTML = '<tr><th>Игрок</th><th>Фракция</th><th>Чем управляет</th><th>Где</th></tr>' +
+    players.map((p) => `<tr><td class="name">${esc(p.name)}${p.real ? '' : ' <span class="dim">бот</span>'}</td><td>${esc(p.faction || '—')}</td>
+      <td class="name">${p.grid ? `<a href="structures.html#${p.gridId}">${esc(p.grid)}</a>` : p.dead ? '<span class="dim">не возродился</span>' : 'пешком'}</td>
+      <td>${p.x == null ? '—' : `<a href="index.html#tracks=player:${p.identity}&sel=player:${p.identity}" title="на карте">${Math.round(p.x)}, ${Math.round(p.y)}, ${Math.round(p.z)}</a>`}</td></tr>`).join('');
+}
+loadOnline();
+setInterval(() => { if (!document.hidden) loadOnline(); }, 10_000);
+
 $('#reload').addEventListener('click', () => { $('#live').checked = false; load(); });
 $('#last15').addEventListener('click', () => setSpan(15 * MIN));
 $('#lastHour').addEventListener('click', () => setSpan(HOUR));

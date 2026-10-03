@@ -47,6 +47,11 @@ namespace SentisWatcher.Ledger
                     (Find(typeof(MyInventory), "RemoveItemsInternal"), nameof(RemovePrefix), nameof(RemoveSuffix)),
                     (Find(typeof(MyInventory), nameof(MyInventory.ApplyChanges)), nameof(EditPrefix), nameof(EditSuffix)),
                     (Find(typeof(MyInventory), nameof(MyInventory.UpdateItem)), nameof(EditPrefix), nameof(EditSuffix)),
+                    // an item changed in place - a bottle's gas when the suit refills, a datapad's text, a magazine's
+                    // rounds: the game takes it out and puts it back. Booked as a whole, it adds up to nothing; as two
+                    // steps the putting back was an item "from an unknown source"
+                    (Find(typeof(MyInventory), nameof(MyInventory.ModifyContent)), nameof(EditPrefix), nameof(EditSuffix)),
+                    (Find(typeof(MyInventory), nameof(MyInventory.ModifyContentForRifle)), nameof(EditPrefix), nameof(EditSuffix)),
                     (Find(typeof(MyInventory), nameof(MyInventory.Clear)), nameof(ClearPrefix), null),
                 };
                 foreach (var (method, prefix, suffix) in hooks) Hook(c, method, prefix, suffix);

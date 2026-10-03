@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>SentisWatcher — структуры</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="perf.css">
+  <link rel="stylesheet" href="structures.css">
+</head>
+<body class="perf structures">
+  <header>
+    <div class="brand">SentisWatcher</div>
+    <nav class="pages"><a href="index.html" title="3D-карта с треками и событиями">Карта</a><a href="ledger.html" title="Инвентари по времени: откуда что бралось, аномалии">Инвентари</a><a href="perf.html" title="Нагрузка на игровой поток, сборка мусора, память">Производительность</a><a class="here">Структуры</a></nav>
+    <input id="q" type="search" placeholder="поиск по имени" title="Структуры, в имени которых есть этот текст (имя структуры — имя её самого большого грида)">
+    <label>владелец <select id="owner" title="Структуры одного владельца"></select></label>
+    <label title="Только структуры, где блокам не хватает электричества"><input id="onlyBad" type="checkbox"> с нехваткой энергии</label>
+    <label title="Обновлять список и открытую структуру каждые 10 секунд"><input id="live" type="checkbox" checked> вживую</label>
+    <button id="reload">Обновить</button>
+    <div id="status" class="status"></div>
+  </header>
+
+  <main class="split">
+    <section class="listside">
+      <div id="count" class="dim"></div>
+      <table id="structures" class="load"></table>
+    </section>
+    <div id="splitter" class="splitter" title="Потяните, чтобы изменить ширину списка; двойной щелчок — как было"></div>
+    <section id="detail" class="detail">
+      <div class="dim hint">Структура — гриды, связанные общей электросетью: роторы, поршни, подвески и коннекторы, которые передают энергию. Выберите структуру в списке.</div>
+    </section>
+  </main>
+  <script type="module" src="structures.js"></script>
+</body>
+</html>

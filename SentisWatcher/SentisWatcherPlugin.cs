@@ -136,6 +136,7 @@ namespace SentisWatcher
             var recorder = Recorder.Current;
             if (recorder == null) return;
             var started = Cost.Start();
+            Http.Live.Tick();
             try
             {
                 LedgerPatches.ResetThread();
