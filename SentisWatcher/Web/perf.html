@@ -16,6 +16,7 @@
     <label>по <input id="to" type="datetime-local" step="1"></label>
     <span id="zone" class="utc" title="Время сервера">время сервера</span>
     <button id="reload" title="Загрузить за этот интервал">Загрузить</button>
+    <button id="rangeBack" title="Вернуться к прошлому интервалу" hidden>↩</button>
     <button id="last15">15 мин</button>
     <button id="lastHour">Час</button>
     <button id="lastDay">Сутки</button>
@@ -27,6 +28,8 @@
   <main>
     <section class="board">
       <div id="summary" class="summary"></div>
+      <div class="dim" style="margin-bottom:6px">На любом графике: Ctrl+колесо (или Shift+колесо) — приблизить и отдалить вокруг курсора, протяжка — выделить период,
+        зажатое колесо — сдвинуть интервал, ↩ — вернуться.</div>
 
       <div class="panel">
         <h3>Кадр игрового потока <span class="dim">— мс, в среднем за точку; тонкие линии — худший кадр; пунктир — 16,7 мс (60 кадров в секунду)</span></h3>
@@ -64,6 +67,14 @@
       </div>
 
       <div class="panel">
+        <h3>Скрипты (программируемые блоки) <span class="dim">— каждый запуск каждого блока: мс в среднем кадре за минуту и самый долгий запуск;
+          блок @ грид — владелец. Самые тяжёлые за интервал (до 40), остальные вместе</span></h3>
+        <div id="nPb" class="dim"></div>
+        <canvas id="cPb"></canvas>
+        <div id="lPb" class="legend"></div>
+      </div>
+
+      <div class="panel">
         <h3>Сборка мусора <span class="dim">— столбики: сборки за точку по поколениям; линия: доля времени в GC, %</span></h3>
         <canvas id="cGc"></canvas>
         <div id="lGc" class="legend"></div>
@@ -92,6 +103,10 @@
       </div>
     </section>
   </main>
+  <div id="rangeBar" class="rangebar floating" hidden>
+    <button id="rangeZoom"></button>
+    <button id="rangeCancel" title="Снять выделение">✕</button>
+  </div>
   <div id="tip" class="tip" hidden></div>
   <script type="module" src="perf.js"></script>
 </body>

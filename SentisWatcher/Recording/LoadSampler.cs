@@ -563,31 +563,13 @@ namespace SentisWatcher.Recording
         {
             var perf = PerfSampler.Timing && Recorder.Current != null;
             if (!_timing && !perf) return true;
-            var byStage = (Dictionary<int, SortedSet<MySessionComponentBase>>)_sessionComponents.GetValue(__instance);
-            void Stage(int stage, int what)
+            // (the session's lists found once per session, not by reflection every frame)
+            if (!ReferenceEquals(_stagesOf, __instance))
             {
-                if (!byStage.TryGetValue(stage, out var set)) return;
-                foreach (var component in set)
-                {
-                    if (!component.UpdatedBeforeInit() && !Sandbox.MySandboxGame.IsGameReady) continue;
-                    var name = ComponentName(component);
-                    long started = 0, nested = 0, perfStarted = 0, parts = 0;
-                    if (_timing) started = Begin(out nested);
-                    if (perf) perfStarted = PerfSampler.ComponentStart(out parts);
-                    try
-                    {
-                        if (what == 1) component.UpdateBeforeSimulation();
-                        else if (what == 2) component.Simulate();
-                        else component.UpdateAfterSimulation();
-                    }
-                    finally
-                    {
-                        if (perf) PerfSampler.ComponentEnd(name, perfStarted, parts);
-                        if (_timing) End(Named(Component, name), started, nested);
-                    }
-                }
+                _stages = (Dictionary<int, SortedSet<MySessionComponentBase>>)_sessionComponents.GetValue(__instance);
+                _stagesOf = __instance;
             }
-            Stage(1, 1);
+            Stage(1, 1, perf);
             var replication = Sandbox.Engine.Multiplayer.MyMultiplayer.Static?.ReplicationLayer;
             if (replication != null)
             {
@@ -597,29 +579,61 @@ namespace SentisWatcher.Recording
                 try { replication.Simulate(); }
                 finally
                 {
-                    if (perf) PerfSampler.ComponentEnd(ReplicationSimulate, perfStarted, parts);
+                    if (perf)
+                    {
+                        if (_replicationSlot < 0) _replicationSlot = PerfSampler.ComponentSlot(ReplicationSimulate);
+                        PerfSampler.ComponentEnd(_replicationSlot, perfStarted, parts);
+                    }
                     if (_timing) End(Named(System, "network.simulate"), started, nested);
                 }
             }
-            Stage(2, 2);
-            Stage(4, 4);
+            Stage(2, 2, perf);
+            Stage(4, 4, perf);
             return false;
+        }
+
+        private static MySession _stagesOf;
+        private static Dictionary<int, SortedSet<MySessionComponentBase>> _stages;
+        private static int _replicationSlot = -1;
+
+        private static void Stage(int stage, int what, bool perf)
+        {
+            if (!_stages.TryGetValue(stage, out var set)) return;
+            foreach (var component in set)
+            {
+                if (!component.UpdatedBeforeInit() && !Sandbox.MySandboxGame.IsGameReady) continue;
+                var known = ComponentOf(component);
+                long started = 0, nested = 0, perfStarted = 0, parts = 0;
+                if (_timing) started = Begin(out nested);
+                if (perf) perfStarted = PerfSampler.ComponentStart(out parts);
+                try
+                {
+                    if (what == 1) component.UpdateBeforeSimulation();
+                    else if (what == 2) component.Simulate();
+                    else component.UpdateAfterSimulation();
+                }
+                finally
+                {
+                    if (perf) PerfSampler.ComponentEnd(known.Slot, perfStarted, parts);
+                    if (_timing) End(Named(Component, known.Name), started, nested);
+                }
+            }
         }
 
         /// <summary>The replication's step inside the components' loop, as the components' row names it.</summary>
         public const string ReplicationSimulate = "VRage.Network.MyReplicationLayer.Simulate";
 
-        private static readonly Dictionary<Type, string> ComponentNames = new Dictionary<Type, string>();
+        private static readonly Dictionary<Type, (string Name, int Slot)> ComponentNames = new Dictionary<Type, (string, int)>();
 
-        /// <summary>The component's type, and the mod it comes from.</summary>
-        private static string ComponentName(MySessionComponentBase component)
+        /// <summary>The component's type and the mod it comes from, and its slot in PerfSampler's every-frame timing.</summary>
+        private static (string Name, int Slot) ComponentOf(MySessionComponentBase component)
         {
             var type = component.GetType();
-            if (ComponentNames.TryGetValue(type, out var name)) return name;
-            name = type.FullName;
+            if (ComponentNames.TryGetValue(type, out var known)) return known;
+            var name = type.FullName;
             var mod = component.ModContext?.ModName;
             if (!string.IsNullOrEmpty(mod)) name = mod + ": " + type.Name;
-            return ComponentNames[type] = name;
+            return ComponentNames[type] = (name, PerfSampler.ComponentSlot(name));
         }
 
         private static bool Plugins(Torch.Managers.PluginManager __instance)

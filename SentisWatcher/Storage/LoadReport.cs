@@ -1,4 +1,5 @@
 using System;
+using SentisWatcher.Recording;
 using System.Collections.Generic;
 using System.Data.SQLite;
 using System.Globalization;
@@ -46,6 +47,8 @@ namespace SentisWatcher.Storage
                             while (r.Read())
                             {
                                 var kind = r.GetString(0);
+                                // (the scripts' rows are every frame of their minute, not the sampled ones: charted apart)
+                                if (kind == PbSampler.Kind) continue;
                                 var frames = r.IsDBNull(5) ? 0 : r.GetInt32(5);
                                 var ms = r.IsDBNull(6) ? 0 : r.GetDouble(6);
                                 var max = r.IsDBNull(7) ? 0 : r.GetDouble(7);

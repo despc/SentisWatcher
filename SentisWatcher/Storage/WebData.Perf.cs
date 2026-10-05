@@ -97,12 +97,15 @@ namespace SentisWatcher.Storage
         {
             var times = new SortedSet<long>();
             var rows = new List<(long T, string Name, double Ms, double Max)>();
+            var owners = new Dictionary<string, string>();
+            // the scripts' rows come at their own minute marks: the samples' marks are not theirs
+            var own = kind == Recording.PbSampler.Kind;
             foreach (var db in Days(from, to))
                 using (db)
                 {
                     using (var check = new SQLiteCommand("SELECT 1 FROM sqlite_master WHERE type='table' AND name='load'", db))
                         if (check.ExecuteScalar() == null) continue;
-                    using (var cmd = new SQLiteCommand("SELECT t, kind, name, ms, max_ms FROM load WHERE t BETWEEN @a AND @b AND (kind=@k OR kind=@total)", db))
+                    using (var cmd = new SQLiteCommand("SELECT t, kind, name, ms, max_ms, owner_name FROM load WHERE t BETWEEN @a AND @b AND (kind=@k OR kind=@total)", db))
                     {
                         cmd.Parameters.AddWithValue("@a", from);
                         cmd.Parameters.AddWithValue("@b", to);
@@ -112,9 +115,14 @@ namespace SentisWatcher.Storage
                             while (r.Read())
                             {
                                 var t = r.GetInt64(0);
+                                var total = r.GetString(1) == Recording.LoadSampler.Total;
+                                if (total && own) continue;
+                                // (to the minute for the scripts: a block's rows of one flush share the mark)
                                 times.Add(t);
-                                if (r.GetString(1) == Recording.LoadSampler.Total) continue;
-                                rows.Add((t, r.IsDBNull(2) ? "" : r.GetString(2), r.IsDBNull(3) ? 0 : r.GetDouble(3), r.IsDBNull(4) ? 0 : r.GetDouble(4)));
+                                if (total) continue;
+                                var name = r.IsDBNull(2) ? "" : r.GetString(2);
+                                rows.Add((t, name, r.IsDBNull(3) ? 0 : r.GetDouble(3), r.IsDBNull(4) ? 0 : r.GetDouble(4)));
+                                if (!r.IsDBNull(5) && r.GetString(5).Length > 0) owners[name] = r.GetString(5);
                             }
                     }
                 }
@@ -143,6 +151,7 @@ namespace SentisWatcher.Storage
             var series = heaviest.Select(n => new Dictionary<string, object>
             {
                 ["name"] = n, ["ms"] = ms[n].Select(v => Math.Round(v, 4)).ToList(), ["max"] = max[n].Select(v => R(v)).ToList(),
+                ["owner"] = owners.TryGetValue(n, out var owner) ? owner : "",
             }).ToList();
             if (rows.Any(r => !chosen.Contains(r.Name)))
                 series.Add(new Dictionary<string, object>

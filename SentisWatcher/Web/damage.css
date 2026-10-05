@@ -1,5 +1,8 @@
 /* the damage page: on top of style.css and perf.css */
 #cDamage { height: 240px; }
+.chartwrap { position: relative; }
+.chartwrap .rangebar { position: absolute; top: 6px; transform: translateX(-50%); display: flex; gap: 4px; z-index: 5; }
+.chartwrap .rangebar button { background: #232a36; border-color: var(--accent); white-space: nowrap; }
 body.damage select { background: #262b34; color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 3px 4px; }
 .kind { display: inline-block; padding: 0 6px; border-radius: 3px; font-size: 11px; margin-right: 4px; color: #11151b; }
 .kind.player { background: #5fb3f9; }
@@ -11,3 +14,4 @@ body.damage select { background: #262b34; color: var(--text); border: 1px solid 
 .rel.enemy { color: var(--bad); }
 .rel.own { color: var(--good); }
 table.load td.weapons { white-space: normal; color: var(--dim); font-size: 11px; max-width: 380px; }
+.rangebar[hidden] { display: none !important; }

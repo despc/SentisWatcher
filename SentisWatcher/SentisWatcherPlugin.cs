@@ -150,7 +150,7 @@ namespace SentisWatcher
                 Sampler?.Tick(); Part(0);
                 Sweep?.Tick(); Part(1);
                 PerfSampler.Tick(recorder); Part(2);
-                LoadSampler.Tick(recorder); Part(3);
+                LoadSampler.Tick(recorder); PbSampler.Tick(recorder); Part(3);
                 recorder.FlushAggregates(); Part(4);
                 InventoryLedger.Current?.FlushSuspects(recorder); Part(5);
             }

@@ -120,6 +120,14 @@ function chart(canvas, series, opts = {}) {
     g.stroke(); g.setLineDash([]);
   }
   canvas._chart = { series: shown, x, left, pw, pts };
+  // the range picked with the mouse: on every chart, they share the time axis
+  if (selection) {
+    const sx = (t) => left + (t - state.from) / Math.max(1, state.to - state.from) * pw;
+    g.fillStyle = '#5fb3f933';
+    g.fillRect(sx(selection[0]), top, sx(selection[1]) - sx(selection[0]), ph);
+    g.strokeStyle = '#5fb3f9'; g.lineWidth = 1;
+    g.strokeRect(sx(selection[0]) + 0.5, top + 0.5, sx(selection[1]) - sx(selection[0]) - 1, ph - 1);
+  }
 }
 
 function niceMax(v) {
@@ -159,9 +167,123 @@ function hoverChart(canvas, ev) {
   tip.style.top = ev.clientY + 14 + 'px';
 }
 for (const canvas of document.querySelectorAll('canvas')) {
-  canvas.addEventListener('mousemove', (ev) => hoverChart(canvas, ev));
+  canvas.addEventListener('mousemove', (ev) => { if (!drag) hoverChart(canvas, ev); });
   canvas.addEventListener('mouseleave', () => { tip.hidden = true; });
 }
+
+// ------------------------------------------------------------------ the charts' time axis: zoom, select, pan
+
+// All the charts show one range: the wheel zooms it around the mouse, a drag picks a part of it (then "show"), the
+// pressed wheel moves it. The charts move at once with what they have; the data of the new range comes a moment later.
+const MIN_SPAN = MIN, MAX_SPAN = 31 * 24 * HOUR;
+let selection = null;           // [from, to] while a range is picked
+let drag = null;                // { mode: 'click' | 'select' | 'pan', canvas, x, t, from, to }
+const rangeHistory = [];
+function timeAt(canvas, clientX) {
+  const c = canvas._chart, r = canvas.getBoundingClientRect();
+  const left = c ? c.left : 46, pw = c ? c.pw : r.width - 58;
+  return state.from + Math.min(1, Math.max(0, (clientX - r.left - left) / Math.max(1, pw))) * (state.to - state.from);
+}
+function remember() {
+  rangeHistory.push([state.from, state.to]);
+  if (rangeHistory.length > 30) rangeHistory.shift();
+  $('#rangeBack').hidden = false;
+}
+let reloadTimer = null;
+function moveRange(from, to, now = false) {
+  const span = Math.min(MAX_SPAN, Math.max(MIN_SPAN, to - from));
+  const middle = (from + to) / 2;
+  state.from = Math.round(middle - span / 2);
+  state.to = Math.round(middle + span / 2);
+  state.span = span;
+  $('#from').value = toInput(state.from);
+  $('#to').value = toInput(state.to);
+  $('#live').checked = false;
+  selection = null;
+  $('#rangeBar').hidden = true;
+  draw();
+  clearTimeout(reloadTimer);
+  reloadTimer = setTimeout(() => load(), now ? 0 : 350);
+}
+function hideSelection() {
+  selection = null;
+  $('#rangeBar').hidden = true;
+  draw();
+}
+let wheeling = false;
+for (const canvas of document.querySelectorAll('canvas')) {
+  canvas.addEventListener('wheel', (e) => {
+    if (!e.ctrlKey && !e.shiftKey) return;            // the plain wheel scrolls the page: the charts fill it
+    e.preventDefault();
+    if (!wheeling) { remember(); wheeling = true; setTimeout(() => { wheeling = false; }, 1500); }
+    const at = timeAt(canvas, e.clientX);
+    const k = e.deltaY > 0 ? 1.3 : 1 / 1.3;
+    const span = Math.min(MAX_SPAN, Math.max(MIN_SPAN, (state.to - state.from) * k));
+    const f = (at - state.from) / Math.max(1, state.to - state.from);
+    moveRange(at - span * f, at - span * f + span);
+  }, { passive: false });
+  canvas.addEventListener('mousedown', (e) => {
+    if (e.button === 1) {
+      e.preventDefault();             // no auto-scroll
+      remember();
+      drag = { mode: 'pan', canvas, x: e.clientX, from: state.from, to: state.to };
+      return;
+    }
+    if (e.button !== 0) return;
+    drag = { mode: 'click', canvas, x: e.clientX, t: timeAt(canvas, e.clientX) };
+  });
+  canvas.addEventListener('auxclick', (e) => { if (e.button === 1) e.preventDefault(); });
+}
+window.addEventListener('mousemove', (e) => {
+  if (!drag) return;
+  if (drag.mode === 'pan') {
+    const pw = drag.canvas._chart?.pw || drag.canvas.clientWidth;
+    const shift = -(e.clientX - drag.x) / pw * (drag.to - drag.from);
+    moveRange(drag.from + shift, drag.to + shift);
+    return;
+  }
+  if (drag.mode === 'click' && Math.abs(e.clientX - drag.x) > 4) drag.mode = 'select';
+  if (drag.mode === 'select') {
+    const t = timeAt(drag.canvas, e.clientX);
+    selection = [Math.min(drag.t, t), Math.max(drag.t, t)];
+    $('#rangeBar').hidden = true;
+    tip.hidden = true;
+    draw();
+  }
+});
+window.addEventListener('mouseup', (e) => {
+  const d = drag;
+  if (!d) return;
+  drag = null;
+  if (d.mode === 'click') { if (selection) hideSelection(); return; }
+  if (d.mode !== 'select') return;
+  if (!selection || selection[1] - selection[0] < 1000) { hideSelection(); return; }
+  // the button over the chart the range was picked on, in the middle of the range
+  const [a, b] = selection;
+  const r = d.canvas.getBoundingClientRect(), c = d.canvas._chart;
+  const mid = r.left + c.left + ((a + b) / 2 - state.from) / Math.max(1, state.to - state.from) * c.pw;
+  const sameDay = fmt(a).slice(0, 10) === fmt(b).slice(0, 10);
+  $('#rangeZoom').textContent = `Показать ${fmt(a, !sameDay)} – ${fmt(b, false)} ›`;
+  const bar = $('#rangeBar');
+  bar.style.left = Math.max(140, Math.min(window.innerWidth - 140, mid)) + 'px';
+  bar.style.top = Math.max(4, r.top + 14) + 'px';
+  bar.hidden = false;
+});
+$('#rangeZoom').addEventListener('click', () => {
+  if (!selection) return;
+  const [a, b] = selection;
+  remember();
+  moveRange(a, b, true);
+});
+$('#rangeCancel').addEventListener('click', () => hideSelection());
+$('#rangeBack').addEventListener('click', () => {
+  const back = rangeHistory.pop();
+  $('#rangeBack').hidden = !rangeHistory.length;
+  if (back) moveRange(back[0], back[1], true);
+});
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && selection) hideSelection(); });
+// the button stands over a place on the page: gone when the page scrolls under it
+document.querySelector('main').addEventListener('scroll', () => { $('#rangeBar').hidden = true; });
 
 function legend(el, series, extra = () => '') {
   el.innerHTML = series.map((s) =>
@@ -328,11 +450,12 @@ function componentName(full) {
   return COMPONENT_NAMES[short] ? `${COMPONENT_NAMES[short]} <span class="dim">(${short})</span>` : short;
 }
 
-const seriesData = { component: null, plugin: null };
+const seriesData = { component: null, plugin: null, pb: null };
 function drawSeries(kind, canvas, legendEl, nameOf, noteEl) {
   const d = seriesData[kind];
   if (!d || !d.t.length) {
-    noteEl.textContent = d && !d.on ? 'Замер выключен (Torch → SentisWatcher → Performance, или !watch load on).' : 'За этот интервал замеров нет.';
+    noteEl.textContent = kind === 'pb' ? 'За этот интервал ни один программируемый блок не запускался.'
+      : d && !d.on ? 'Замер выключен (Torch → SentisWatcher → Performance, или !watch load on).' : 'За этот интервал замеров нет.';
     chart(canvas, [], { points: [] });
     legendEl.innerHTML = '';
     return;
@@ -340,15 +463,16 @@ function drawSeries(kind, canvas, legendEl, nameOf, noteEl) {
   noteEl.textContent = '';
   const pts = d.t.map((t) => ({ t }));
   const series = d.series.map((s, i) => ({
-    key: kind + ':' + s.name, name: nameOf(s.name), color: s.name ? COLORS[i % COLORS.length] : '#bdc3c7', unit: 'мс',
+    key: kind + ':' + s.name, name: nameOf(s.name, s), color: s.name ? COLORS[i % COLORS.length] : '#bdc3c7', unit: 'мс',
     values: s.ms, maxes: s.max,
   }));
-  chart(canvas, series, { points: pts, leftMax: niceMax(Math.max(0.5, ...series.filter((s) => !state.hidden[s.key]).map((s) => (max(s.values) || 0) * 1.3))) });
+  chart(canvas, series, { points: pts, leftMax: niceMax(Math.max(kind === 'pb' ? 0.02 : 0.5, ...series.filter((s) => !state.hidden[s.key]).map((s) => (max(s.values) || 0) * 1.3))) });
   legend(legendEl, series, (s) => ' ' + num(avg(s.values), 3) + ', худший кадр ' + num(max(s.maxes), 1));
 }
 function drawSeriesCharts() {
   drawSeries('component', $('#cComponents'), $('#lComponents'), componentName, $('#nComponents'));
   drawSeries('plugin', $('#cPlugins'), $('#lPlugins'), (n) => n || 'остальные', $('#nPlugins'));
+  drawSeries('pb', $('#cPb'), $('#lPb'), (n, s) => n ? esc(n) + (s.owner ? ` <span class="dim">— ${esc(s.owner)}</span>` : ' <span class="dim">— без владельца</span>') : 'остальные', $('#nPb'));
 }
 
 function summary() {
@@ -424,21 +548,31 @@ async function load() {
   state.to = fromInput($('#to').value);
   const width = $('#cFrame').clientWidth || 1200;
   status('Загружаю…');
-  const data = await api('perf', { from: state.from, to: state.to, points: Math.min(3000, Math.max(200, Math.round(width))) });
+  const [from, to] = [state.from, state.to];
+  const stale = () => from !== state.from || to !== state.to;       // the range moved on meanwhile: the next load is the one
+  const data = await api('perf', { from, to, points: Math.min(3000, Math.max(200, Math.round(width))) });
+  if (stale()) return;
   state.points = data.points;
   draw();
-  loadData = await api('load', { from: state.from, to: state.to, top: 200 });
+  const loaded = await api('load', { from, to, top: 200 });
+  if (stale()) return;
+  loadData = loaded;
   drawLoad();
-  [seriesData.component, seriesData.plugin] = await Promise.all([
-    api('loadseries', { from: state.from, to: state.to, kind: 'component', top: 10 }),
-    api('loadseries', { from: state.from, to: state.to, kind: 'plugin', top: 10 }),
+  const series = await Promise.all([
+    api('loadseries', { from, to, kind: 'component', top: 10 }),
+    api('loadseries', { from, to, kind: 'plugin', top: 10 }),
+    api('loadseries', { from, to, kind: 'pb', top: 40 }),
   ]);
+  if (stale()) return;
+  [seriesData.component, seriesData.plugin, seriesData.pb] = series;
   drawSeriesCharts();
   status(state.points.length ? `${state.points.length} точек, ${fmt(state.from)} — ${fmt(state.to)}` : 'Нет записей за интервал');
 }
 
 function setSpan(span) {
   state.span = span;
+  selection = null;
+  $('#rangeBar').hidden = true;
   const now = Date.now();
   $('#from').value = toInput(now - span);
   $('#to').value = toInput(now);

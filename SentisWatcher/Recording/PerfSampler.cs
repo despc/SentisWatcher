@@ -73,8 +73,30 @@ namespace SentisWatcher.Recording
         private static Thread _gameThread;
 
         // the session components, each frame (game thread): their own time this frame, and over the period
-        private static readonly Dictionary<string, long> ComponentFrame = new Dictionary<string, long>();
-        private static readonly Dictionary<string, Acc> ComponentAcc = new Dictionary<string, Acc>();
+        // (priced on the stand, 05.10.2026, against the game's own loop in every other 5 s period: 0.03-0.05 ms a frame)
+        // (by a slot number each component type gets once: a name looked up in a dictionary at every call, the parts
+        // summed anew at every call and the list read by reflection every frame made the timing itself 0.1 ms a frame)
+        private static readonly List<string> SlotNames = new List<string>();
+        private static long[] _slotFrame = new long[64];
+        private static Acc[] _slotAcc = new Acc[64];
+        /// <summary>The parts' own time so far this frame, the session's not counted (it closes after its components).</summary>
+        private static long _partsRunning;
+
+        /// <summary>The slot of a session component by its name: asked once per component type.</summary>
+        internal static int ComponentSlot(string name)
+        {
+            var slot = SlotNames.IndexOf(name);
+            if (slot >= 0) return slot;
+            SlotNames.Add(name);
+            slot = SlotNames.Count - 1;
+            if (slot >= _slotFrame.Length)
+            {
+                Array.Resize(ref _slotFrame, _slotFrame.Length * 2);
+                Array.Resize(ref _slotAcc, _slotAcc.Length * 2);
+            }
+            _slotAcc[slot] = new Acc();
+            return slot;
+        }
 
         /// <summary>A session component's call shorter than this on average and in its worst frame is left out of the row, ms.</summary>
         private const double ComponentAvgMin = 0.005, ComponentMaxMin = 0.5;
@@ -163,6 +185,7 @@ namespace SentisWatcher.Recording
             _gameThread = Thread.CurrentThread;
             _depth = 0;
             Array.Clear(PartFrame, 0, PartFrame.Length);
+            _partsRunning = 0;
             LoadSampler.FrameStart();
         }
 
@@ -178,12 +201,13 @@ namespace SentisWatcher.Recording
                 parts += PartFrame[i];
             }
             OtherAcc.Add(Math.Max(0, frame - parts));
-            foreach (var component in ComponentFrame)
+            for (var slot = SlotNames.Count - 1; slot >= 0; slot--)
             {
-                if (!ComponentAcc.TryGetValue(component.Key, out var acc)) ComponentAcc[component.Key] = acc = new Acc();
-                acc.Add(component.Value);
+                var ticks = _slotFrame[slot];
+                if (ticks == 0) continue;
+                _slotAcc[slot].Add(ticks);
+                _slotFrame[slot] = 0;
             }
-            ComponentFrame.Clear();
             _frameStart = 0;
             LoadSampler.FrameEnd(frame);
         }
@@ -207,21 +231,14 @@ namespace SentisWatcher.Recording
             _depth--;
             if (_depth >= MaxDepth) return;
             var elapsed = Stopwatch.GetTimestamp() - OpenStart[_depth];
-            PartFrame[(int)part] += Math.Max(0, elapsed - OpenInner[_depth]);
+            var own = Math.Max(0, elapsed - OpenInner[_depth]);
+            PartFrame[(int)part] += own;
+            if (part != Part.Session) _partsRunning += own;
             if (_depth > 0) OpenInner[_depth - 1] += elapsed;
         }
 
         /// <summary>Whether the frame is being timed here and now (the game thread, inside a frame).</summary>
         internal static bool Timing => _frameStart != 0 && Thread.CurrentThread == _gameThread;
-
-        /// <summary>The parts' own time so far this frame, the session's not counted (it closes after its components).</summary>
-        private static long PartsNow()
-        {
-            var sum = 0L;
-            for (var i = 0; i < PartFrame.Length; i++)
-                if (i != (int)Part.Session) sum += PartFrame[i];
-            return sum;
-        }
 
         /// <summary>
         /// A session component's call begins (LoadSampler runs the components' loop): its own time is what it took
@@ -229,15 +246,14 @@ namespace SentisWatcher.Recording
         /// </summary>
         internal static long ComponentStart(out long parts)
         {
-            parts = PartsNow();
+            parts = _partsRunning;
             return Stopwatch.GetTimestamp();
         }
 
-        internal static void ComponentEnd(string name, long started, long parts)
+        internal static void ComponentEnd(int slot, long started, long parts)
         {
-            var own = Stopwatch.GetTimestamp() - started - (PartsNow() - parts);
-            ComponentFrame.TryGetValue(name, out var was);
-            ComponentFrame[name] = was + Math.Max(0, own);
+            var own = Stopwatch.GetTimestamp() - started - (_partsRunning - parts);
+            if (own > 0) _slotFrame[slot] += own;
         }
 
         private static void PhysicsStart() => Open();
@@ -413,12 +429,13 @@ namespace SentisWatcher.Recording
             // the session components: each one's time in an average frame of the period (all frames, so that they add up
             // to the part "session") and its worst frame; the ones too small to see left out
             // (the small ones together, so that the row adds up to the part)
-            var all = ComponentAcc.Select(p => (Name: p.Key, Avg: frames == 0 ? 0 : Ms(p.Value.Ticks) / frames, Max: Max(p.Value))).ToList();
+            var all = Enumerable.Range(0, SlotNames.Count).Where(i => _slotAcc[i].Count > 0)
+                .Select(i => (Name: SlotNames[i], Avg: frames == 0 ? 0 : Ms(_slotAcc[i].Ticks) / frames, Max: Max(_slotAcc[i]))).ToList();
             var shown = all.Where(c => c.Avg >= ComponentAvgMin || c.Max >= ComponentMaxMin).OrderByDescending(c => c.Avg).ToList();
             var small = all.Where(c => !(c.Avg >= ComponentAvgMin || c.Max >= ComponentMaxMin)).ToList();
             if (small.Count > 0) shown.Add((SmallComponents, small.Sum(c => c.Avg), small.Max(c => c.Max)));
             var components = string.Join(";", shown.Select(c => c.Name.Replace(";", ",").Replace(":", " ") + ":" + F(c.Avg) + ":" + F(c.Max)));
-            foreach (var acc in ComponentAcc.Values) acc.Clear();
+            for (var i = 0; i < SlotNames.Count; i++) _slotAcc[i].Clear();
             FrameAcc.Clear();
             OtherAcc.Clear();
             foreach (var acc in PartAcc) acc.Clear();

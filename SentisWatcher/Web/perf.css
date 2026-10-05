@@ -31,6 +31,8 @@ table.load .share { position: relative; min-width: 140px; }
 table.load .share i { position: absolute; left: 0; top: 4px; bottom: 4px; background: #5fb3f944; border-radius: 2px; }
 table.load .share span { position: relative; }
 table.load td.bad { color: var(--bad); }
+.rangebar.floating { position: fixed; transform: translateX(-50%); display: flex; gap: 4px; z-index: 15; }
+.rangebar.floating button { background: #232a36; border-color: var(--accent); white-space: nowrap; }
 .tip {
   position: fixed; z-index: 20; pointer-events: none; background: #11151bee; border: 1px solid var(--line);
   border-radius: 4px; padding: 6px 8px; font-size: 12px; white-space: nowrap;
@@ -40,3 +42,4 @@ table.load td.bad { color: var(--bad); }
 .tip .r b { font-family: Consolas, monospace; font-weight: normal; }
 .tip .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
 table.load a { color: var(--accent); text-decoration: none; }
+.rangebar[hidden] { display: none !important; }

@@ -128,12 +128,15 @@ namespace SentisWatcher.Storage
                             while (r.Read())
                                 if (!r.IsDBNull(1)) names[r.GetInt64(0)] = r.GetString(1);
                 }
-            foreach (var id in ids.Where(id => !names.ContainsKey(id)))
-            {
-                var identity = Sandbox.Game.World.MySession.Static?.Players?.TryGetIdentity(id);
-                if (identity != null) names[id] = identity.DisplayName;
-                else if (Sandbox.Game.Entities.MyEntities.TryGetEntityById(id, out var entity) && entity != null) names[id] = entity.DisplayName ?? entity.GetType().Name;
-            }
+            // the rest as the game has them now - asked on the game thread (the game's collections are not to be read from
+            // the web server's thread); the game not answering leaves them as numbers
+            var missing = ids.Where(id => !names.ContainsKey(id)).Take(2000).ToList();
+            if (missing.Count > 0)
+                try
+                {
+                    foreach (var p in Http.Live.Names(missing)) names[p.Key] = p.Value;
+                }
+                catch (Exception) { }
             return names;
         }
 

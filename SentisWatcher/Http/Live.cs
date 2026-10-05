@@ -128,6 +128,23 @@ namespace SentisWatcher.Http
             }
         }
 
+        /// <summary>The names of identities and entities as the game has them now, read on the game thread.</summary>
+        public static Dictionary<long, string> Names(List<long> ids) => (Dictionary<long, string>)OnGameThread(NameSteps(ids));
+
+        private static IEnumerable<object> NameSteps(List<long> ids)
+        {
+            var names = new Dictionary<long, string>();
+            var players = MySession.Static?.Players;
+            for (var i = 0; i < ids.Count; i++)
+            {
+                var identity = players?.TryGetIdentity(ids[i]);
+                if (identity != null) names[ids[i]] = identity.DisplayName;
+                else if (Sandbox.Game.Entities.MyEntities.TryGetEntityById(ids[i], out var entity) && entity != null) names[ids[i]] = entity.DisplayName ?? entity.GetType().Name;
+                if (i % 200 == 199) yield return null;
+            }
+            yield return new Answer { Value = names };
+        }
+
         // ------------------------------------------------------------------ players
 
         /// <summary>The players online: name, faction, what they control and where.</summary>

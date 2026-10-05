@@ -17,6 +17,7 @@
     <label>по <input id="to" type="datetime-local" step="1"></label>
     <span id="zone" class="utc" title="Время сервера">время сервера</span>
     <button id="reload" title="Загрузить за этот интервал">Загрузить</button>
+    <button id="rangeBack" title="Вернуться к прошлому интервалу" hidden>↩</button>
     <button id="last15">15 мин</button>
     <button id="lastHour">Час</button>
     <button id="lastDay">Сутки</button>
@@ -32,8 +33,15 @@
       <div id="summary" class="summary"></div>
 
       <div class="panel">
-        <h3>Урон по времени <span class="dim">— столбики: урон за точку по тому, кто наносил (попадания и распил); линия: выстрелы</span></h3>
-        <canvas id="cDamage"></canvas>
+        <h3>Урон по времени <span class="dim">— столбики: урон за точку по тому, кто наносил (попадания и распил); линия: выстрелы.
+          Колесо — приблизить и отдалить вокруг курсора, протяжка — выделить период, зажатое колесо — сдвинуть</span></h3>
+        <div class="chartwrap">
+          <canvas id="cDamage"></canvas>
+          <div id="rangeBar" class="rangebar" hidden>
+            <button id="rangeZoom"></button>
+            <button id="rangeCancel" title="Снять выделение">✕</button>
+          </div>
+        </div>
         <div id="lDamage" class="legend"></div>
       </div>
 

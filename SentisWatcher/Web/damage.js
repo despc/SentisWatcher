@@ -103,7 +103,128 @@ function drawChart() {
   g.textAlign = 'right';
   g.fillText(fmt(d.to, false), left + pw, h - 5);
   canvas._layout = { left, pw, n, width: d.width, from: d.from, totals };
+  // the range picked with the mouse, and while the wheel or the pan moved the range ahead of the data, where the
+  // data on screen sits in it
+  if (selection) {
+    const x0 = left + (selection[0] - state.from) / Math.max(1, state.to - state.from) * pw;
+    const x1 = left + (selection[1] - state.from) / Math.max(1, state.to - state.from) * pw;
+    g.fillStyle = '#5fb3f933';
+    g.fillRect(x0, top, x1 - x0, ph);
+    g.strokeStyle = '#5fb3f9';
+    g.strokeRect(x0 + 0.5, top + 0.5, x1 - x0 - 1, ph - 1);
+  }
+  if (d.from !== state.from || d.to !== state.to) {
+    g.fillStyle = '#8b95a5';
+    g.textAlign = 'center';
+    g.fillText(`${fmt(state.from)} — ${fmt(state.to)} · загружаю…`, left + pw / 2, top + 12);
+  }
 }
+
+// ------------------------------------------------------------------ the chart's time axis: zoom, select, pan
+
+const MIN_SPAN = MIN, MAX_SPAN = 31 * 24 * HOUR;
+let selection = null;           // [from, to] while a range is picked
+let drag = null;                // { mode: 'click' | 'select' | 'pan', x, t, from, to }
+const rangeHistory = [];
+// the time under a pixel of the chart, by the range asked for (the bars may still show the one before)
+function timeAt(clientX) {
+  const c = $('#cDamage'), l = c._layout, r = c.getBoundingClientRect();
+  const left = l ? l.left : 56, pw = l ? l.pw : r.width - 102;
+  return state.from + Math.min(1, Math.max(0, (clientX - r.left - left) / Math.max(1, pw))) * (state.to - state.from);
+}
+function remember() {
+  rangeHistory.push([state.from, state.to]);
+  if (rangeHistory.length > 30) rangeHistory.shift();
+  $('#rangeBack').hidden = false;
+}
+const reloadSoon = (() => { let timer; return () => { clearTimeout(timer); timer = setTimeout(() => load(), 350); }; })();
+function moveRange(from, to, now = false) {
+  const span = Math.min(MAX_SPAN, Math.max(MIN_SPAN, to - from));
+  const middle = (from + to) / 2;
+  state.from = Math.round(middle - span / 2);
+  state.to = Math.round(middle + span / 2);
+  state.span = span;
+  $('#from').value = toInput(state.from);
+  $('#to').value = toInput(state.to);
+  $('#live').checked = false;
+  hideSelection(false);
+  drawChart();
+  if (now) load(); else reloadSoon();
+}
+function hideSelection(redraw = true) {
+  selection = null;
+  $('#rangeBar').hidden = true;
+  if (redraw) drawChart();
+}
+function showRangeBar() {
+  const c = $('#cDamage'), l = c._layout;
+  const [a, b] = selection;
+  const mid = l.left + ((a + b) / 2 - state.from) / Math.max(1, state.to - state.from) * l.pw;
+  const sameDay = fmt(a).slice(0, 10) === fmt(b).slice(0, 10);
+  $('#rangeZoom').textContent = `Показать ${fmt(a, !sameDay)} – ${fmt(b, false)} ›`;
+  const bar = $('#rangeBar');
+  bar.style.left = Math.max(130, Math.min(c.clientWidth - 130, mid)) + 'px';
+  bar.hidden = false;
+}
+let wheeling = false;
+$('#cDamage').addEventListener('wheel', (e) => {
+  e.preventDefault();
+  if (!wheeling) { remember(); wheeling = true; setTimeout(() => { wheeling = false; }, 1500); }
+  const at = timeAt(e.clientX);
+  const k = e.deltaY > 0 ? 1.3 : 1 / 1.3;
+  const span = Math.min(MAX_SPAN, Math.max(MIN_SPAN, (state.to - state.from) * k));
+  const f = (at - state.from) / Math.max(1, state.to - state.from);
+  moveRange(at - span * f, at - span * f + span);
+}, { passive: false });
+$('#cDamage').addEventListener('mousedown', (e) => {
+  if (e.button === 1) {
+    e.preventDefault();             // no auto-scroll
+    remember();
+    drag = { mode: 'pan', x: e.clientX, from: state.from, to: state.to };
+    return;
+  }
+  if (e.button !== 0) return;
+  drag = { mode: 'click', x: e.clientX, t: timeAt(e.clientX) };
+});
+$('#cDamage').addEventListener('auxclick', (e) => { if (e.button === 1) e.preventDefault(); });
+window.addEventListener('mousemove', (e) => {
+  if (!drag) return;
+  if (drag.mode === 'pan') {
+    const pw = $('#cDamage')._layout?.pw || $('#cDamage').clientWidth;
+    const shift = -(e.clientX - drag.x) / pw * (drag.to - drag.from);
+    moveRange(drag.from + shift, drag.to + shift);
+    return;
+  }
+  if (drag.mode === 'click' && Math.abs(e.clientX - drag.x) > 4) drag.mode = 'select';
+  if (drag.mode === 'select') {
+    const t = timeAt(e.clientX);
+    selection = [Math.min(drag.t, t), Math.max(drag.t, t)];
+    $('#rangeBar').hidden = true;
+    $('#tip').hidden = true;
+    drawChart();
+  }
+});
+window.addEventListener('mouseup', () => {
+  const d = drag;
+  if (!d) return;
+  drag = null;
+  if (d.mode === 'click') hideSelection();
+  else if (d.mode === 'select' && selection && selection[1] - selection[0] >= 1000) showRangeBar();
+  else if (d.mode === 'select') hideSelection();
+});
+$('#rangeZoom').addEventListener('click', () => {
+  if (!selection) return;
+  const [a, b] = selection;
+  remember();
+  moveRange(a, b, true);
+});
+$('#rangeCancel').addEventListener('click', () => hideSelection());
+$('#rangeBack').addEventListener('click', () => {
+  const back = rangeHistory.pop();
+  $('#rangeBack').hidden = !rangeHistory.length;
+  if (back) moveRange(back[0], back[1], true);
+});
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && selection) hideSelection(); });
 
 function drawLegend() {
   const d = state.data;
@@ -121,7 +242,7 @@ $('#lDamage').addEventListener('click', (e) => {
 });
 $('#cDamage').addEventListener('mousemove', (e) => {
   const c = e.currentTarget, l = c._layout, tip = $('#tip'), d = state.data;
-  if (!l || !d) return;
+  if (!l || !d || drag) return;
   const i = Math.floor((e.offsetX - l.left) / l.pw * l.n);
   if (i < 0 || i >= l.n) { tip.hidden = true; return; }
   const t = d.from + i * l.width;
@@ -221,13 +342,18 @@ async function load() {
   state.to = fromInput($('#to').value);
   status('Загружаю…');
   const buckets = Math.min(400, Math.max(40, Math.round(($('#cDamage').clientWidth || 1200) / 6)));
-  state.data = await api('damage', { from: state.from, to: state.to, relation: $('#relation').value, buckets, recent: 300 });
+  const [from, to] = [state.from, state.to];
+  const data = await api('damage', { from, to, relation: $('#relation').value, buckets, recent: 300 });
+  if (from !== state.from || to !== state.to) return;       // the range moved on meanwhile: the next answer is the one
+  state.data = data;
   draw();
   status(`${num(state.data.rows)} записей, ${fmt(state.from)} — ${fmt(state.to)}`);
 }
 
 function setSpan(span) {
   state.span = span;
+  selection = null;
+  $('#rangeBar').hidden = true;
   const now = Date.now();
   $('#from').value = toInput(now - span);
   $('#to').value = toInput(now);
