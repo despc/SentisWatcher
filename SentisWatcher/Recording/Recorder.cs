@@ -70,6 +70,7 @@ namespace SentisWatcher.Recording
         /// <summary>Writes the aggregates of the window that ended (game thread, every frame).</summary>
         public void FlushAggregates(bool force = false)
         {
+            DamageLog.Flush(this, force);
             var done = Aggregator.Take(Clock.Now, force);
             if (done == null) return;
             foreach (var a in done)

@@ -11,7 +11,7 @@ namespace SentisWatcher.Storage
         /// <summary>
         /// The server's load over the range (table perf), put together into at most <paramref name="points"/>
         /// points: averages averaged (weighted by frames), worst frames the worst, collections added up, memory
-        /// averaged; the profiler's other blocks likewise, by name.
+        /// averaged; the profiler's other blocks likewise, by name, and the session components (each frame) the same way.
         /// </summary>
         public object Perf(long from, long to, int points)
         {
@@ -22,8 +22,10 @@ namespace SentisWatcher.Storage
                 using (db)
                 {
                     if (!HasTable(db, "perf")) continue;
-                    using (var cmd = Command(db, "SELECT t, frames, frame, frame_max, physics, physics_max, gc0, gc1, gc2, gc_time, managed_mb, private_mb, working_mb, sim, players, blocks " +
-                                                 "FROM perf WHERE t BETWEEN @a AND @b ORDER BY t", ("@a", from), ("@b", to)))
+                    // (the session components by name only in the files written since 05.10.2026)
+                    var withComponents = HasColumn(db, "perf", "components");
+                    using (var cmd = Command(db, "SELECT t, frames, frame, frame_max, physics, physics_max, gc0, gc1, gc2, gc_time, managed_mb, private_mb, working_mb, sim, players, blocks" +
+                                                 (withComponents ? ", components" : "") + " FROM perf WHERE t BETWEEN @a AND @b ORDER BY t", ("@a", from), ("@b", to)))
                     using (var r = cmd.ExecuteReader())
                         while (r.Read())
                         {
@@ -43,16 +45,8 @@ namespace SentisWatcher.Storage
                             b.Managed += D(r, 10); b.Private += D(r, 11); b.Working += D(r, 12);
                             b.Sim += D(r, 13);
                             b.Players = Math.Max(b.Players, (int)D(r, 14));
-                            if (!r.IsDBNull(15))
-                                foreach (var part in r.GetString(15).Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
-                                {
-                                    var bits = part.Split(':');
-                                    if (bits.Length < 3) continue;
-                                    var avg = double.Parse(bits[1], CultureInfo.InvariantCulture);
-                                    var max = double.Parse(bits[2], CultureInfo.InvariantCulture);
-                                    b.Blocks.TryGetValue(bits[0], out var was);
-                                    b.Blocks[bits[0]] = (was.Sum + avg * frames, Math.Max(was.Max, max));
-                                }
+                            if (!r.IsDBNull(15)) AddParts(b.Blocks, r.GetString(15), frames);
+                            if (withComponents && !r.IsDBNull(16)) AddParts(b.Components, r.GetString(16), frames);
                         }
                 }
             var list = buckets.Values.Select(b =>
@@ -71,6 +65,7 @@ namespace SentisWatcher.Storage
                     ["managed"] = R(b.Managed / n), ["private"] = R(b.Private / n), ["working"] = R(b.Working / n),
                     ["sim"] = R(b.Sim / n), ["players"] = b.Players,
                     ["blocks"] = timed ? b.Blocks.ToDictionary(p => p.Key, p => new[] { R(p.Value.Sum / frames), R(p.Value.Max) }) : null,
+                    ["components"] = timed && b.Components.Count > 0 ? b.Components.ToDictionary(p => p.Key, p => new[] { Math.Round(p.Value.Sum / frames, 4), R(p.Value.Max) }) : null,
                 };
             }).ToList();
             return new Dictionary<string, object> { ["from"] = from, ["to"] = to, ["width"] = width, ["points"] = list };
@@ -160,6 +155,26 @@ namespace SentisWatcher.Storage
             };
         }
 
+        /// <summary>A row's parts ('name:avg:max;...') into the bucket's sums, each average weighted by the row's frames.</summary>
+        private static void AddParts(Dictionary<string, (double Sum, double Max)> into, string parts, double frames)
+        {
+            foreach (var part in parts.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var bits = part.Split(':');
+                if (bits.Length < 3) continue;
+                var avg = double.Parse(bits[1], CultureInfo.InvariantCulture);
+                var max = double.Parse(bits[2], CultureInfo.InvariantCulture);
+                into.TryGetValue(bits[0], out var was);
+                into[bits[0]] = (was.Sum + avg * frames, Math.Max(was.Max, max));
+            }
+        }
+
+        private static bool HasColumn(System.Data.SQLite.SQLiteConnection db, string table, string column)
+        {
+            using (var cmd = Command(db, "SELECT 1 FROM pragma_table_info(@t) WHERE name=@c", ("@t", table), ("@c", column)))
+                return cmd.ExecuteScalar() != null;
+        }
+
         private sealed class Bucket
         {
             public long T;
@@ -167,6 +182,7 @@ namespace SentisWatcher.Storage
             public long Frames, Gc0, Gc1, Gc2;
             public double Frame, FrameMax, Physics, PhysicsMax, GcTime, Managed, Private, Working, Sim;
             public readonly Dictionary<string, (double Sum, double Max)> Blocks = new Dictionary<string, (double, double)>();
+            public readonly Dictionary<string, (double Sum, double Max)> Components = new Dictionary<string, (double, double)>();
         }
 
         private static double D(System.Data.SQLite.SQLiteDataReader r, int column) => r.IsDBNull(column) ? 0 : Convert.ToDouble(r.GetValue(column), CultureInfo.InvariantCulture);

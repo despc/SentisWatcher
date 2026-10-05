@@ -69,11 +69,13 @@ CREATE INDEX IF NOT EXISTS alerts_by_t ON alerts(t);
 
 -- how hard the server worked, every 5 s: the game thread's frame and its physics in ms (average and worst frame
 -- of the period), the other parts of the frame in blocks ('entities_before:avg:max;entities_after:...;other:...'),
--- collections by generation, the share of the time in GC (%), memory (MB), the simulation speed, players online
+-- collections by generation, the share of the time in GC (%), memory (MB), the simulation speed, players online;
+-- components: the part session by session component, each frame ('Sandbox.Game.World.MySector:avg:max;...', the
+-- noticeable ones only)
 CREATE TABLE IF NOT EXISTS perf(
   id INTEGER PRIMARY KEY, t INTEGER NOT NULL, frames INTEGER, frame REAL, frame_max REAL, physics REAL, physics_max REAL,
   gc0 INTEGER, gc1 INTEGER, gc2 INTEGER, gc_time REAL, managed_mb REAL, private_mb REAL, working_mb REAL,
-  sim REAL, players INTEGER, blocks TEXT);
+  sim REAL, players INTEGER, blocks TEXT, components TEXT);
 CREATE INDEX IF NOT EXISTS perf_by_t ON perf(t);
 CREATE TABLE IF NOT EXISTS load(
   id INTEGER PRIMARY KEY, t INTEGER NOT NULL, kind TEXT NOT NULL, entity INTEGER, name TEXT, owner INTEGER, owner_name TEXT,
@@ -82,6 +84,15 @@ CREATE INDEX IF NOT EXISTS load_by_t ON load(t);
 CREATE TABLE IF NOT EXISTS spikes(
   id INTEGER PRIMARY KEY, t INTEGER NOT NULL, frame_ms REAL, gc0 INTEGER, gc1 INTEGER, gc2 INTEGER, untimed_ms REAL, top TEXT);
 CREATE INDEX IF NOT EXISTS spikes_by_t ON spikes(t);
+
+-- who fights whom, summed over 2 s per attacker, weapon and target: kind hit, grind, destroyed (blocks), kill (characters),
+-- shot (a gun fired; no target); attacker_kind player, bot, animal, npc, none; attacker_entity the character or the grid;
+-- weapon 'Bullet:LargeGatlingTurret' (damage) or 'LargeGatlingTurret/NATO_25x184mm' (shots); target the grid or the
+-- character, target_kind block, character, animal; victim the target's owner; relation enemy, neutral, ally, own, nobody
+CREATE TABLE IF NOT EXISTS damage(
+  id INTEGER PRIMARY KEY, t INTEGER NOT NULL, kind TEXT NOT NULL, attacker INTEGER, attacker_kind TEXT, attacker_entity INTEGER,
+  weapon TEXT, target INTEGER, target_kind TEXT, victim INTEGER, relation TEXT, amount REAL, count INTEGER, x REAL, y REAL, z REAL);
+CREATE INDEX IF NOT EXISTS damage_by_t ON damage(t);
 ";
 
         /// <summary>Changes to the files of older versions, each run only where it is missing.</summary>
@@ -89,6 +100,7 @@ CREATE INDEX IF NOT EXISTS spikes_by_t ON spikes(t);
         {
             ("inventories", "flows", "ALTER TABLE inventories ADD COLUMN flows TEXT"),
             ("load", "alloc_kb", "ALTER TABLE load ADD COLUMN alloc_kb REAL"),
+            ("perf", "components", "ALTER TABLE perf ADD COLUMN components TEXT"),
         };
     }
 }

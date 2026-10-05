@@ -554,9 +554,15 @@ namespace SentisWatcher.Recording
 
         // ------------------------------------------------------------------ session components and plugins
 
+        /// <summary>
+        /// The session components' loop, vanilla's own: in a sampled frame each one charged here, and in every frame
+        /// timed for PerfSampler too (the part "session" by component, each frame - its rare long frames are what the
+        /// samples miss).
+        /// </summary>
         private static bool Components(MySession __instance)
         {
-            if (!_timing) return true;
+            var perf = PerfSampler.Timing && Recorder.Current != null;
+            if (!_timing && !perf) return true;
             var byStage = (Dictionary<int, SortedSet<MySessionComponentBase>>)_sessionComponents.GetValue(__instance);
             void Stage(int stage, int what)
             {
@@ -564,7 +570,10 @@ namespace SentisWatcher.Recording
                 foreach (var component in set)
                 {
                     if (!component.UpdatedBeforeInit() && !Sandbox.MySandboxGame.IsGameReady) continue;
-                    var started = Begin(out var nested);
+                    var name = ComponentName(component);
+                    long started = 0, nested = 0, perfStarted = 0, parts = 0;
+                    if (_timing) started = Begin(out nested);
+                    if (perf) perfStarted = PerfSampler.ComponentStart(out parts);
                     try
                     {
                         if (what == 1) component.UpdateBeforeSimulation();
@@ -573,7 +582,8 @@ namespace SentisWatcher.Recording
                     }
                     finally
                     {
-                        End(Named(Component, ComponentName(component)), started, nested);
+                        if (perf) PerfSampler.ComponentEnd(name, perfStarted, parts);
+                        if (_timing) End(Named(Component, name), started, nested);
                     }
                 }
             }
@@ -581,14 +591,23 @@ namespace SentisWatcher.Recording
             var replication = Sandbox.Engine.Multiplayer.MyMultiplayer.Static?.ReplicationLayer;
             if (replication != null)
             {
-                var started = Begin(out var nested);
+                long started = 0, nested = 0, perfStarted = 0, parts = 0;
+                if (_timing) started = Begin(out nested);
+                if (perf) perfStarted = PerfSampler.ComponentStart(out parts);
                 try { replication.Simulate(); }
-                finally { End(Named(System, "network.simulate"), started, nested); }
+                finally
+                {
+                    if (perf) PerfSampler.ComponentEnd(ReplicationSimulate, perfStarted, parts);
+                    if (_timing) End(Named(System, "network.simulate"), started, nested);
+                }
             }
             Stage(2, 2);
             Stage(4, 4);
             return false;
         }
+
+        /// <summary>The replication's step inside the components' loop, as the components' row names it.</summary>
+        public const string ReplicationSimulate = "VRage.Network.MyReplicationLayer.Simulate";
 
         private static readonly Dictionary<Type, string> ComponentNames = new Dictionary<Type, string>();
 

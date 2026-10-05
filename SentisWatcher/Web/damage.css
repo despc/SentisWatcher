@@ -1,0 +1,13 @@
+/* the damage page: on top of style.css and perf.css */
+#cDamage { height: 240px; }
+body.damage select { background: #262b34; color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 3px 4px; }
+.kind { display: inline-block; padding: 0 6px; border-radius: 3px; font-size: 11px; margin-right: 4px; color: #11151b; }
+.kind.player { background: #5fb3f9; }
+.kind.bot { background: #f5b041; }
+.kind.animal { background: #ec7063; }
+.kind.npc { background: #af7ac5; }
+.kind.none { background: #8b95a5; }
+.rel { font-size: 11px; color: var(--dim); }
+.rel.enemy { color: var(--bad); }
+.rel.own { color: var(--good); }
+table.load td.weapons { white-space: normal; color: var(--dim); font-size: 11px; max-width: 380px; }

@@ -16,6 +16,7 @@ namespace SentisWatcher.Storage
         Perf,
         Load,
         Spikes,
+        Damage,
     }
 
     /// <summary>
@@ -55,9 +56,10 @@ namespace SentisWatcher.Storage
                 case Table.Alerts: return new[] { "t", "kind", "actor", "entity", "detail" };
                 case Table.Planets: return new[] { "id", "name", "generator", "x", "y", "z", "radius", "min_radius", "max_radius", "atmosphere", "gravity", "t" };
                 case Table.Meta: return new[] { "key", "value" };
-                case Table.Perf: return new[] { "t", "frames", "frame", "frame_max", "physics", "physics_max", "gc0", "gc1", "gc2", "gc_time", "managed_mb", "private_mb", "working_mb", "sim", "players", "blocks" };
+                case Table.Perf: return new[] { "t", "frames", "frame", "frame_max", "physics", "physics_max", "gc0", "gc1", "gc2", "gc_time", "managed_mb", "private_mb", "working_mb", "sim", "players", "blocks", "components" };
                 case Table.Load: return new[] { "t", "kind", "entity", "name", "owner", "owner_name", "frames", "ms", "max_ms", "alloc_kb" };
                 case Table.Spikes: return new[] { "t", "frame_ms", "gc0", "gc1", "gc2", "untimed_ms", "top" };
+                case Table.Damage: return new[] { "t", "kind", "attacker", "attacker_kind", "attacker_entity", "weapon", "target", "target_kind", "victim", "relation", "amount", "count", "x", "y", "z" };
                 default: throw new ArgumentOutOfRangeException(nameof(table));
             }
         }
@@ -77,6 +79,7 @@ namespace SentisWatcher.Storage
                 case Table.Perf: return "perf";
                 case Table.Load: return "load";
                 case Table.Spikes: return "spikes";
+                case Table.Damage: return "damage";
                 default: throw new ArgumentOutOfRangeException(nameof(table));
             }
         }

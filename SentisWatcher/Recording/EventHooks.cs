@@ -139,6 +139,7 @@ namespace SentisWatcher.Recording
 
         private void OnDamage(object target, MyDamageInformation info) => Recorder.Safe("damage", () =>
         {
+            DamageLog.Damage(target, info);
             var attacker = Identities.OfEntity(info.AttackerId);
             var type = info.Type.String;
             switch (target)

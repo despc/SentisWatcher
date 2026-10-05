@@ -72,6 +72,16 @@ namespace SentisWatcher.Recording
         private static long _frameStart;
         private static Thread _gameThread;
 
+        // the session components, each frame (game thread): their own time this frame, and over the period
+        private static readonly Dictionary<string, long> ComponentFrame = new Dictionary<string, long>();
+        private static readonly Dictionary<string, Acc> ComponentAcc = new Dictionary<string, Acc>();
+
+        /// <summary>A session component's call shorter than this on average and in its worst frame is left out of the row, ms.</summary>
+        private const double ComponentAvgMin = 0.005, ComponentMaxMin = 0.5;
+
+        /// <summary>The components left out of the row, as one.</summary>
+        public const string SmallComponents = "small";
+
         // the timed calls open now, innermost last: when each started and what the timed calls inside it took
         private const int MaxDepth = 32;
         private static readonly long[] OpenStart = new long[MaxDepth], OpenInner = new long[MaxDepth];
@@ -168,6 +178,12 @@ namespace SentisWatcher.Recording
                 parts += PartFrame[i];
             }
             OtherAcc.Add(Math.Max(0, frame - parts));
+            foreach (var component in ComponentFrame)
+            {
+                if (!ComponentAcc.TryGetValue(component.Key, out var acc)) ComponentAcc[component.Key] = acc = new Acc();
+                acc.Add(component.Value);
+            }
+            ComponentFrame.Clear();
             _frameStart = 0;
             LoadSampler.FrameEnd(frame);
         }
@@ -193,6 +209,35 @@ namespace SentisWatcher.Recording
             var elapsed = Stopwatch.GetTimestamp() - OpenStart[_depth];
             PartFrame[(int)part] += Math.Max(0, elapsed - OpenInner[_depth]);
             if (_depth > 0) OpenInner[_depth - 1] += elapsed;
+        }
+
+        /// <summary>Whether the frame is being timed here and now (the game thread, inside a frame).</summary>
+        internal static bool Timing => _frameStart != 0 && Thread.CurrentThread == _gameThread;
+
+        /// <summary>The parts' own time so far this frame, the session's not counted (it closes after its components).</summary>
+        private static long PartsNow()
+        {
+            var sum = 0L;
+            for (var i = 0; i < PartFrame.Length; i++)
+                if (i != (int)Part.Session) sum += PartFrame[i];
+            return sum;
+        }
+
+        /// <summary>
+        /// A session component's call begins (LoadSampler runs the components' loop): its own time is what it took
+        /// less the timed parts inside it (the entities under MySector, the physics under MyPhysics).
+        /// </summary>
+        internal static long ComponentStart(out long parts)
+        {
+            parts = PartsNow();
+            return Stopwatch.GetTimestamp();
+        }
+
+        internal static void ComponentEnd(string name, long started, long parts)
+        {
+            var own = Stopwatch.GetTimestamp() - started - (PartsNow() - parts);
+            ComponentFrame.TryGetValue(name, out var was);
+            ComponentFrame[name] = was + Math.Max(0, own);
         }
 
         private static void PhysicsStart() => Open();
@@ -365,6 +410,15 @@ namespace SentisWatcher.Recording
                 .Select(i => (PartKeys[i], PartAcc[i])).Concat(new[] { (Other, OtherAcc) })
                 .Select(p => p.Item1 + ":" + F(Avg(p.Item2)) + ":" + F(Max(p.Item2))));
             var frameAvg = Avg(FrameAcc); var frameMax = Max(FrameAcc); var physicsAvg = Avg(physics); var physicsMax = Max(physics);
+            // the session components: each one's time in an average frame of the period (all frames, so that they add up
+            // to the part "session") and its worst frame; the ones too small to see left out
+            // (the small ones together, so that the row adds up to the part)
+            var all = ComponentAcc.Select(p => (Name: p.Key, Avg: frames == 0 ? 0 : Ms(p.Value.Ticks) / frames, Max: Max(p.Value))).ToList();
+            var shown = all.Where(c => c.Avg >= ComponentAvgMin || c.Max >= ComponentMaxMin).OrderByDescending(c => c.Avg).ToList();
+            var small = all.Where(c => !(c.Avg >= ComponentAvgMin || c.Max >= ComponentMaxMin)).ToList();
+            if (small.Count > 0) shown.Add((SmallComponents, small.Sum(c => c.Avg), small.Max(c => c.Max)));
+            var components = string.Join(";", shown.Select(c => c.Name.Replace(";", ",").Replace(":", " ") + ":" + F(c.Avg) + ":" + F(c.Max)));
+            foreach (var acc in ComponentAcc.Values) acc.Clear();
             FrameAcc.Clear();
             OtherAcc.Clear();
             foreach (var acc in PartAcc) acc.Clear();
@@ -392,7 +446,7 @@ namespace SentisWatcher.Recording
             if (!Warmup.Over) return;
             recorder.Store.Add(new Row(Table.Perf, Clock.Now, Clock.Now, frames,
                 frameAvg, frameMax, physicsAvg, physicsMax,
-                gc[0], gc[1], gc[2], gcTime, managed, priv, working, sim, players, blocks));
+                gc[0], gc[1], gc[2], gcTime, managed, priv, working, sim, players, blocks, components));
         }
 
         private static string F(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);

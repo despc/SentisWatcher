@@ -407,7 +407,11 @@ function select(key, focus = true) {
   renderTracked();
   renderEvents();
   refreshInventory();
-  if (focus) focusSelected();
+  if (focus) {
+    focusSelected();
+    // chosen to look at: the camera stays with it (in real time it moves on); moving the camera by hand lets it go
+    $('#follow').checked = true;
+  }
   saveHash();
 }
 
@@ -1175,7 +1179,7 @@ renderer.domElement.addEventListener('click', (ev) => {
   if (o.userData.jumpEnd && !o.userData.track) return;
   if (o.userData.ambient) {
     const a = o.userData.ambient;
-    addTrack(o.userData.kind, a.id, a.name).then(() => { buildAmbient(); renderMoment(); });
+    addTrack(o.userData.kind, a.id, a.name).then(() => { select(trackKey(o.userData.kind, a.id)); buildAmbient(); renderMoment(); });
     return;
   }
   if (o.userData.event) setTime(o.userData.event.t);
@@ -1587,6 +1591,12 @@ $('#play').addEventListener('click', () => {
 // list follow. Positions are written once a second and the day file is written every second, so what shows
 // is a second or two behind the game.
 let liveTimer = null, liveBusy = false, liveActivityAt = 0;
+// Between two ticks the moment runs on with the clock, LIVE_LAG behind the server's now: positions are written a second
+// apart and reach the file a second or two late, so that far back there is a point on either side to move between - the
+// followed one goes smoothly, not a jump to its last point every tick. liveSkew: the server's clock less this one's.
+const LIVE_LAG = 2500;
+let liveSkew = 0;
+const liveNow = () => Date.now() + liveSkew - LIVE_LAG;
 function setLive(on) {
   if (!!liveTimer === on) return;
   $('#live').checked = on;
@@ -1609,6 +1619,7 @@ async function liveTick() {
   try {
     const { now } = await api('now');
     if (!liveTimer) return;
+    liveSkew = now - Date.now();
     const since = state.to;
     const span = Math.max(60_000, state.to - state.from);
     state.to = now;
@@ -1620,7 +1631,7 @@ async function liveTick() {
     renderEvents();
     // the activity bars of the whole range: not more often than every 5 s
     if (now - liveActivityAt >= 5000) { liveActivityAt = now; loadActivity(); }
-    setTime(now, false, true);
+    setTime(Math.max(state.t, liveNow()), false, true);
   } catch (e) {
     status('Обновление в реальном времени: ' + e.message, true);
   } finally {
@@ -2129,6 +2140,11 @@ function frame(now) {
     if (state.playing) {
       setTime(state.t + dt * state.speed, true);
       if (state.t >= state.to) { state.playing = false; $('#play').textContent = '▶'; setTime(state.t); }
+    } else if (liveTimer) {
+      // real time: the moment moves on with the clock between the ticks (the scene and the followed camera with it; the
+      // events, inventories and everyone else at the next tick)
+      const t = Math.min(state.to, liveNow());
+      if (t > state.t) state.t = t;
     }
     fly(now);
     moveByKeys(dt);

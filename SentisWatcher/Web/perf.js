@@ -251,8 +251,42 @@ function draw() {
   chart($('#cSim'), sim, { leftMax: 1.05, right: true, refs: [{ y: 1 }] });
   legend($('#lSim'), sim, (s) => s.key === 'sim' ? ' ' + num(avg(s.values), 2) + ', мин ' + num(min(s.values), 2) : ' макс ' + num(max(s.values), 0));
 
+  drawSessionComponents();
   summary();
   drawSeriesCharts();
+}
+
+// the part "session" by component, every frame (perf.components): the heaviest on average, and every one that had a long frame
+function drawSessionComponents() {
+  const pts = state.points;
+  const totals = {}, worst = {};
+  for (const p of pts) for (const [n, [a, m]] of Object.entries(p.components || {})) {
+    totals[n] = (totals[n] || 0) + a;
+    worst[n] = Math.max(worst[n] || 0, m);
+  }
+  const names = Object.keys(totals);
+  if (!names.length) {
+    $('#nSession').textContent = 'За этот интервал замера по компонентам нет (пишется с версии от 05.10.2026).';
+    chart($('#cSession'), [], { points: [] });
+    $('#lSession').innerHTML = '';
+    return;
+  }
+  $('#nSession').textContent = '';
+  const heavy = names.sort((a, b) => totals[b] - totals[a]).slice(0, 10);
+  const chosen = [...new Set([...heavy, ...names.filter((n) => worst[n] >= 2)])];
+  const rest = names.filter((n) => !chosen.includes(n));
+  const series = chosen.map((n, i) => ({
+    key: 'sc:' + n, name: componentName(n), color: COLORS[i % COLORS.length], unit: 'мс',
+    values: pts.map((p) => p.components ? (p.components[n] ? p.components[n][0] : 0) : null),
+    maxes: pts.map((p) => p.components ? (p.components[n] ? p.components[n][1] : 0) : null),
+  }));
+  if (rest.length) series.push({
+    key: 'sc:', name: 'остальные', color: '#bdc3c7', unit: 'мс',
+    values: pts.map((p) => p.components ? rest.reduce((s, n) => s + (p.components[n] ? p.components[n][0] : 0), 0) : null),
+    maxes: pts.map((p) => p.components ? Math.max(0, ...rest.map((n) => p.components[n] ? p.components[n][1] : 0)) : null),
+  });
+  chart($('#cSession'), series, { leftMax: niceMax(Math.max(0.5, ...series.filter((s) => !state.hidden[s.key]).map((s) => (max(s.values) || 0) * 1.3))) });
+  legend($('#lSession'), series, (s) => ' ' + num(avg(s.values), 3) + ', худший кадр ' + num(max(s.maxes), 1));
 }
 
 // ------------------------------------------------------------------ session components and plugins over time (/api/loadseries)
@@ -281,9 +315,15 @@ const COMPONENT_NAMES = {
   'MySectorWeatherComponent': 'погода',
   'MyPlanetaryEncountersGenerator': 'встречи на планетах (NPC-гриды)',
   'MyHazardExposureComponent': 'опасности окружения для персонажей',
+  'MySessionComponentSmartUpdater': 'отложенные обновления блоков (SmartUpdater)',
+  'MySessionComponentAntiCheat': 'античит',
+  'MyExplosions': 'взрывы',
+  'MyEnvironmentalParticles': 'частицы окружения',
+  'Simulate': 'сеть: шаг репликации (MyReplicationLayer.Simulate)',
 };
 function componentName(full) {
   if (!full) return 'остальные';
+  if (full === 'small') return 'мелкие (меньше 0,005 мс в среднем и 0,5 мс в худшем кадре)';
   const short = full.split('.').pop();
   return COMPONENT_NAMES[short] ? `${COMPONENT_NAMES[short]} <span class="dim">(${short})</span>` : short;
 }
