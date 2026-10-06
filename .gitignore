@@ -3,3 +3,5 @@ obj/
 *.user
 .idea/
 .vs/
+dist/
+.se/

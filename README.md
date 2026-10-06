@@ -25,7 +25,9 @@
 
 ## Установка
 
-1. Положите в `Plugins` архив `SentisWatcher.zip`.
+1. Скачайте архив плагина со страницы [Releases](https://github.com/despc/SentisWatcher/releases) и положите его в
+   папку `Plugins` как есть. Можно и распаковать в `Plugins\SentisWatcher`: нужны `SentisWatcher.dll`,
+   `System.Data.SQLite.dll` и `manifest.xml`.
 2. Перезапустите Torch.
 3. Откройте на машине сервера `http://127.0.0.1:18950/`.
 
