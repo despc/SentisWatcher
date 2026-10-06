@@ -19,9 +19,11 @@ namespace SentisWatcher.Storage
         /// Who fought whom over the range (table damage): per attacker (damage dealt, grinding, shots, kills, blocks
         /// destroyed, its weapons), per victim (damage taken and from whom), the damage over time by the attacker's kind,
         /// and the latest rows. <paramref name="relation"/> "enemy" keeps what was done to enemies (and to animals, and
-        /// the shots, which have no target), "all" everything.
+        /// the shots, which have no target), "all" everything. With <paramref name="attacker"/> (an identity) only what that
+        /// player did, with <paramref name="victim"/> only what was done to that player or theirs, with both - what the one
+        /// did to the other; the lists to choose from are of all of it.
         /// </summary>
-        public object Damage(long from, long to, string relation, int buckets, int recent)
+        public object Damage(long from, long to, string relation, int buckets, int recent, long attacker = 0, long victim = 0)
         {
             var rows = new List<DamageRow>();
             foreach (var db in Days(from, to))
@@ -45,6 +47,19 @@ namespace SentisWatcher.Storage
 
             var names = Names(from, to, kept.SelectMany(d => new[] { d.Attacker, d.Victim, d.Target, d.AttackerEntity }).Where(id => id != 0).Distinct().ToList());
             string Name(long id) => id == 0 ? "" : names.TryGetValue(id, out var n) ? n : id.ToString();
+
+            // who can be chosen, of all of it: as the source everyone who dealt something over the range (players and
+            // bots; not the animals, which have no identity to tell them apart), as the target everyone who took something
+            // themselves or by what is theirs (not what is nobody's). The ids as text: an identity does not fit a
+            // JavaScript number, and the page sends it back as it got it
+            List<Dictionary<string, object>> Choice(IEnumerable<(long Id, string Kind)> people) => people.GroupBy(p => p.Id).Select(g => new Dictionary<string, object>
+            {
+                ["id"] = g.Key.ToString(), ["name"] = Name(g.Key), ["kind"] = g.Select(p => p.Kind).FirstOrDefault(k => k.Length > 0) ?? "",
+            }).OrderBy(p => (string)p["name"], StringComparer.CurrentCultureIgnoreCase).ToList();
+            var sources = Choice(kept.Where(d => d.Attacker != 0 && (d.AttackerKind == "player" || d.AttackerKind == "bot")).Select(d => (d.Attacker, d.AttackerKind)));
+            var targets = Choice(kept.Where(d => d.Victim != 0 && d.TargetKind != "animal").Select(d => (d.Victim, "")));
+            if (attacker != 0) kept = kept.Where(d => d.Attacker == attacker).ToList();
+            if (victim != 0) kept = kept.Where(d => d.Victim == victim).ToList();
             string Who(long identity, string kind) => kind == "animal" ? "зверь" : identity == 0 ? "" : Name(identity);
 
             object Attackers() => kept.GroupBy(d => (d.AttackerKind == "animal" ? 0 : d.Attacker, d.AttackerKind)).Select(g =>
@@ -107,6 +122,7 @@ namespace SentisWatcher.Storage
             return new Dictionary<string, object>
             {
                 ["from"] = from, ["to"] = to, ["width"] = width, ["relation"] = enemiesOnly ? "enemy" : "all", ["rows"] = rows.Count,
+                ["sources"] = sources, ["targets"] = targets, ["attacker"] = attacker.ToString(), ["victim"] = victim.ToString(),
                 ["attackers"] = Attackers(), ["victims"] = Victims(),
                 ["series"] = series.ToDictionary(p => p.Key, p => p.Value.Select(R).ToList()), ["shots"] = shots.ToList(),
                 ["recent"] = latest,

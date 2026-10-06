@@ -47,6 +47,16 @@ namespace SentisWatcher.Recording
         public const string Grid = "grid", Character = "character", Component = "component", Plugin = "plugin",
             System = "system", Other = "other", Parallel = "parallel", Total = "total";
 
+        /// <summary>
+        /// The physics step laid to the grids: Havok has no time of a grid or of a cluster (with its parallel
+        /// scheduling all the active clusters go through one queue of jobs), so the step's measured time is shared out
+        /// by the work there is to do - the active rigid bodies of a grid's mechanical group and the group's mechanical
+        /// connections (what Havok integrates, collides and solves; the way SentisOptimisations' physics guard counts),
+        /// out of all the active bodies of the world. A sleeping or a static grid costs nothing. The group goes by its
+        /// grid of the most blocks. An estimate of a share, not a measurement of the grid.
+        /// </summary>
+        public const string GridPhysics = "grid_physics";
+
         private sealed class Entry
         {
             public string Kind, Name;
@@ -670,7 +680,75 @@ namespace SentisWatcher.Recording
         private static void SimulateStart() { if (_timing) _simulateStart = Begin(out _simulateNested); }
         private static void SimulateEnd() { if (_timing && _simulateStart != 0) End(Named(System, "entities.simulate"), _simulateStart, _simulateNested); _simulateStart = 0; }
         private static void PhysicsStart() { if (_timing) _physicsStart = Begin(out _physicsNested); }
-        private static void PhysicsEnd() { if (_timing && _physicsStart != 0) End(Named(System, "physics"), _physicsStart, _physicsNested); _physicsStart = 0; }
+        private static void PhysicsEnd()
+        {
+            if (_timing && _physicsStart != 0)
+            {
+                var step = Stopwatch.GetTimestamp() - _physicsStart;
+                End(Named(System, "physics"), _physicsStart, _physicsNested);
+                try
+                {
+                    SharePhysics(step);
+                }
+                catch (Exception)
+                {
+                    // a body or a group gone in the middle: this frame's step is not shared out
+                }
+            }
+            _physicsStart = 0;
+        }
+
+        private static readonly Dictionary<long, Entry> PhysicsByGrid = new Dictionary<long, Entry>();
+        private static readonly Dictionary<long, long> PhysicsGroupOf = new Dictionary<long, long>();
+        private static readonly Dictionary<long, int> PhysicsCost = new Dictionary<long, int>();
+
+        /// <summary>The step's time to the grids by their share of the active bodies and mechanical connections (see <see cref="GridPhysics"/>).</summary>
+        private static void SharePhysics(long stepTicks)
+        {
+            PhysicsGroupOf.Clear();
+            PhysicsCost.Clear();
+            var total = 0;
+            foreach (var cluster in Sandbox.Engine.Physics.MyPhysics.Clusters.GetList())
+            {
+                if (!(cluster is Havok.HkWorld world)) continue;
+                foreach (var body in world.ActiveRigidBodies)
+                {
+                    total++;
+                    if (!(body.UserObject is Sandbox.Engine.Physics.MyPhysicsBody physics) || !(physics.Entity is MyCubeGrid grid)) continue;
+                    if (grid.MarkedForClose || grid.IsStatic || grid.Physics?.RigidBody == null || grid.Physics.RigidBody.GetMotionType() == Havok.HkMotionType.Fixed) continue;
+                    if (!PhysicsGroupOf.TryGetValue(grid.EntityId, out var key))
+                    {
+                        var nodes = MyCubeGridGroups.Static.GetGroups(VRage.Game.ModAPI.GridLinkTypeEnum.Mechanical).GetGroupNodes(grid);
+                        MyCubeGrid biggest = grid;
+                        if (nodes != null)
+                            foreach (var node in nodes)
+                                if (node.BlocksCount > biggest.BlocksCount) biggest = node;
+                        key = biggest.EntityId;
+                        var first = !PhysicsCost.ContainsKey(key);
+                        if (nodes != null)
+                            foreach (var node in nodes) PhysicsGroupOf[node.EntityId] = key;
+                        PhysicsGroupOf[grid.EntityId] = key;
+                        if (first)
+                        {
+                            // every rotor, piston or wheel of the group is a constraint the solver carries
+                            var links = nodes != null ? Math.Max(0, nodes.Count - 1) : 0;
+                            PhysicsCost[key] = links;
+                            total += links;
+                        }
+                    }
+                    PhysicsCost[key] = PhysicsCost[key] + 1;
+                }
+            }
+            if (total <= 0) return;
+            foreach (var pair in PhysicsCost)
+            {
+                if (pair.Value <= 0) continue;
+                if (!PhysicsByGrid.TryGetValue(pair.Key, out var e)) PhysicsByGrid[pair.Key] = e = new Entry { Kind = GridPhysics, Id = pair.Key };
+                var share = stepTicks * pair.Value / total;
+                e.Ticks += share;
+                if (share > e.Max) e.Max = share;
+            }
+        }
 
         private static long _gameLogicStart, _gameLogicNested;
         private static void GameLogicStart() { if (_timing) _gameLogicStart = Begin(out _gameLogicNested); }
@@ -854,13 +932,13 @@ namespace SentisWatcher.Recording
             var frames = _frames;
             recorder.Store.Add(new Row(Table.Load, t, t, Total, 0L, "", 0L, "", frames, Ms(_frameTicks) / frames, Ms(_frameMax), _frameAlloc / 1024.0 / frames));
             var players = MySession.Static?.Players;
-            foreach (var kind in ByEntity.Values.Concat(ByName.Values).GroupBy(e => e.Kind))
+            foreach (var kind in ByEntity.Values.Concat(ByName.Values).Concat(PhysicsByGrid.Values).GroupBy(e => e.Kind))
                 foreach (var e in kind.OrderByDescending(e => e.Ticks).Take(TopPerKind))
                 {
                     if (e.Ticks == 0) break;
                     var owner = e.Owner;
                     var name = e.Name;
-                    if (e.Kind == Grid && MyEntities.TryGetEntityById(e.Id, out var entity) && entity is MyCubeGrid grid)
+                    if ((e.Kind == Grid || e.Kind == GridPhysics) && MyEntities.TryGetEntityById(e.Id, out var entity) && entity is MyCubeGrid grid)
                     {
                         name = grid.DisplayName;
                         if (grid.BigOwners.Count > 0) owner = grid.BigOwners[0];
@@ -878,6 +956,7 @@ namespace SentisWatcher.Recording
             _frameAlloc = 0;
             ByEntity.Clear();
             ByName.Clear();
+            PhysicsByGrid.Clear();
         }
     }
 }

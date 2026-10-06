@@ -343,11 +343,25 @@ async function load() {
   status('Загружаю…');
   const buckets = Math.min(400, Math.max(40, Math.round(($('#cDamage').clientWidth || 1200) / 6)));
   const [from, to] = [state.from, state.to];
-  const data = await api('damage', { from, to, relation: $('#relation').value, buckets, recent: 300 });
-  if (from !== state.from || to !== state.to) return;       // the range moved on meanwhile: the next answer is the one
+  const attacker = $('#attacker').value, victim = $('#victim').value;
+  const data = await api('damage', { from, to, relation: $('#relation').value, attacker, victim, buckets, recent: 300 });
+  // the range or the choice moved on meanwhile: the next answer is the one
+  if (from !== state.from || to !== state.to || attacker !== $('#attacker').value || victim !== $('#victim').value) return;
   state.data = data;
+  fillPlayers($('#attacker'), 'всех', data.sources || [], attacker);
+  fillPlayers($('#victim'), 'всем', data.targets || [], victim);
   draw();
   status(`${num(state.data.rows)} записей, ${fmt(state.from)} — ${fmt(state.to)}`);
+}
+
+// the players to choose from (the sources: everyone who dealt something over the range, the targets: everyone who took
+// something); the chosen one stays in the list even when the range has nothing of theirs
+function fillPlayers(select, all, players, chosen) {
+  const known = select.querySelector(`option[value="${CSS.escape(chosen)}"]`)?.textContent;
+  const options = players.map((p) => [String(p.id), p.name + (p.kind === 'bot' ? ' (бот)' : '')]);
+  if (chosen !== '0' && !options.some(([id]) => id === chosen)) options.unshift([chosen, known || chosen]);
+  select.innerHTML = `<option value="0">${all}</option>` + options.map(([id, name]) => `<option value="${esc(id)}">${esc(name)}</option>`).join('');
+  select.value = chosen;
 }
 
 function setSpan(span) {
@@ -362,6 +376,8 @@ function setSpan(span) {
 
 $('#reload').addEventListener('click', () => { $('#live').checked = false; load(); });
 $('#relation').addEventListener('change', () => load());
+$('#attacker').addEventListener('change', () => load());
+$('#victim').addEventListener('change', () => load());
 $('#last15').addEventListener('click', () => setSpan(15 * MIN));
 $('#lastHour').addEventListener('click', () => setSpan(HOUR));
 $('#lastDay').addEventListener('click', () => setSpan(24 * HOUR));

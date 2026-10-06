@@ -24,6 +24,10 @@
     <button id="lastWeek">Неделя</button>
     <label title="Что учитывать: только урон по врагам (и по зверям) или всё, включая свои блоки и ничьё">
       <select id="relation"><option value="enemy">по врагам</option><option value="all">весь урон</option></select></label>
+    <label title="Источник: только то, что сделал этот игрок или бот">от
+      <select id="attacker"><option value="0">всех</option></select></label>
+    <label title="Цель: только то, что сделали этому игроку или его постройкам">по
+      <select id="victim"><option value="0">всем</option></select></label>
     <label title="Подгружать новое каждые 10 секунд, интервал сдвигается к текущему моменту"><input id="live" type="checkbox" checked> вживую</label>
     <div id="status" class="status"></div>
   </header>

@@ -28,7 +28,7 @@
   <main>
     <section class="board">
       <div id="summary" class="summary"></div>
-      <div class="dim" style="margin-bottom:6px">На любом графике: Ctrl+колесо (или Shift+колесо) — приблизить и отдалить вокруг курсора, протяжка — выделить период,
+      <div class="dim" style="margin-bottom:6px">Щелчок по заголовку сворачивает и разворачивает график. На любом графике: Ctrl+колесо (или Shift+колесо) — приблизить и отдалить вокруг курсора, протяжка — выделить период,
         зажатое колесо — сдвинуть интервал, ↩ — вернуться.</div>
 
       <div class="panel">
@@ -41,6 +41,21 @@
         <h3>Из чего состоит кадр <span class="dim">— мс в среднем за кадр</span></h3>
         <canvas id="cBlocks"></canvas>
         <div id="lBlocks" class="legend"></div>
+      </div>
+
+      <div class="pair">
+        <div class="panel">
+          <h3 title="Оценка: время шага физики поделено между гридами по числу активных тел и механических связей группы грида (у Havok нет времени отдельного грида). Спящий и статичный грид не стоит ничего. Группа показана под своим самым большим гридом.">Гриды: физика, топ-10 <span class="dim">— доля шага физики, мс в кадре (оценка, подробности — в подсказке)</span></h3>
+          <div id="nGridPhysics" class="dim"></div>
+          <canvas id="cGridPhysics"></canvas>
+          <div id="lGridPhysics" class="legend"></div>
+        </div>
+        <div class="panel">
+          <h3 title="Обновление блоков грида в игровом потоке и параллельные обновления, которых игровой поток ждёт. По имени грида.">Гриды: логика, топ-10 <span class="dim">— обновление блоков грида, мс в кадре</span></h3>
+          <div id="nGridLogic" class="dim"></div>
+          <canvas id="cGridLogic"></canvas>
+          <div id="lGridLogic" class="legend"></div>
+        </div>
       </div>
 
       <div class="panel">
@@ -75,7 +90,7 @@
       </div>
 
       <div class="panel">
-        <h3>Сборка мусора <span class="dim">— столбики: сборки за точку по поколениям; линия: доля времени в GC, %</span></h3>
+        <h3>Сборка мусора <span class="dim">— столбики: сборки за точку по поколениям; линия: время в GC, мс за каждую секунду</span></h3>
         <canvas id="cGc"></canvas>
         <div id="lGc" class="legend"></div>
       </div>

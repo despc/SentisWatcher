@@ -348,15 +348,17 @@ function draw() {
   chart($('#cBlocks'), blocks, { leftMax: niceMax(Math.max(2, ...blocks.map((b) => (max(b.values) || 0) * 1.5))) });
   legend($('#lBlocks'), blocks, (s) => ' ' + num(avg(s.values), 3) + ', макс ' + num(max(s.maxes), 1));
 
-  // the collector
+  // the collector. Its time in milliseconds of each second (the recorded share of the time in GC, % - 1% of a second is
+  // 10 ms): a number to lay beside the frame's 16.7 ms, and the same whatever the width of a point
+  const gcMs = col('gcTime').map((v) => v == null ? null : v * 10);
   const gc = [
     { key: 'gc0', name: 'сборки поколения 0', color: '#48c9b0', kind: 'bar', values: col('gc0') },
     { key: 'gc1', name: 'поколения 1', color: '#f4d03f', kind: 'bar', values: col('gc1') },
     { key: 'gc2', name: 'поколения 2 (полные)', color: '#ec7063', kind: 'bar', values: col('gc2') },
-    { key: 'gcTime', name: 'время в GC', color: '#d7bde2', values: col('gcTime'), axis: 'right', unit: '%' },
+    { key: 'gcTime', name: 'время в GC за секунду', color: '#d7bde2', values: gcMs, axis: 'right', unit: 'мс' },
   ];
   chart($('#cGc'), gc, { right: true });
-  legend($('#lGc'), gc, (s) => s.key === 'gcTime' ? ' ' + num(avg(s.values), 1) + '%, макс ' + num(max(s.values), 1) + '%' : ' всего ' + num(s.values.reduce((a, b) => a + (b || 0), 0), 0));
+  legend($('#lGc'), gc, (s) => s.key === 'gcTime' ? ' ' + num(avg(s.values), 1) + ' мс, макс ' + num(max(s.values), 1) + ' мс' : ' всего ' + num(s.values.reduce((a, b) => a + (b || 0), 0), 0));
 
   const mem = [
     { key: 'working', name: 'в памяти (working set)', color: '#5fb3f9', values: col('working'), unit: 'МБ' },
@@ -450,11 +452,12 @@ function componentName(full) {
   return COMPONENT_NAMES[short] ? `${COMPONENT_NAMES[short]} <span class="dim">(${short})</span>` : short;
 }
 
-const seriesData = { component: null, plugin: null, pb: null };
+const seriesData = { component: null, plugin: null, pb: null, gridPhysics: null, gridLogic: null };
 function drawSeries(kind, canvas, legendEl, nameOf, noteEl) {
   const d = seriesData[kind];
   if (!d || !d.t.length) {
     noteEl.textContent = kind === 'pb' ? 'За этот интервал ни один программируемый блок не запускался.'
+      : kind === 'gridPhysics' && d && d.on ? 'За этот интервал замеров нет (физика по гридам пишется с версии от 06.10.2026, и только когда есть активные гриды).'
       : d && !d.on ? 'Замер выключен (Torch → SentisWatcher → Performance, или !watch load on).' : 'За этот интервал замеров нет.';
     chart(canvas, [], { points: [] });
     legendEl.innerHTML = '';
@@ -473,6 +476,38 @@ function drawSeriesCharts() {
   drawSeries('component', $('#cComponents'), $('#lComponents'), componentName, $('#nComponents'));
   drawSeries('plugin', $('#cPlugins'), $('#lPlugins'), (n) => n || 'остальные', $('#nPlugins'));
   drawSeries('pb', $('#cPb'), $('#lPb'), (n, s) => n ? esc(n) + (s.owner ? ` <span class="dim">— ${esc(s.owner)}</span>` : ' <span class="dim">— без владельца</span>') : 'остальные', $('#nPb'));
+  const grid = (n, s) => n ? esc(n) + (s.owner ? ` <span class="dim">— ${esc(s.owner)}</span>` : '') : 'остальные';
+  drawSeries('gridPhysics', $('#cGridPhysics'), $('#lGridPhysics'), grid, $('#nGridPhysics'));
+  drawSeries('gridLogic', $('#cGridLogic'), $('#lGridLogic'), grid, $('#nGridLogic'));
+}
+
+// ------------------------------------------------------------------ panels fold at their titles
+
+// which are folded is this viewer's own (the browser keeps it); the ones folded until asked for
+const FOLDED_AT_FIRST = ['cMem', 'cGc', 'cPlugins', 'cComponents'];
+const FOLD_KEY = 'watcher.perf.folded';
+function foldedPanels() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(FOLD_KEY) || 'null');
+    if (saved && typeof saved === 'object') return saved;
+  } catch (e) { /* no storage here: the defaults */ }
+  return Object.fromEntries(FOLDED_AT_FIRST.map((id) => [id, true]));
+}
+const folded = foldedPanels();
+for (const panel of document.querySelectorAll('.board .panel')) {
+  const id = panel.querySelector('canvas, table')?.id;
+  const title = panel.querySelector('h3');
+  if (!id || !title) continue;
+  panel.classList.add('folds');
+  panel.classList.toggle('folded', !!folded[id]);
+  title.title = (title.title ? title.title + ' ' : '') + 'Щелчок — свернуть или развернуть.';
+  title.addEventListener('click', () => {
+    folded[id] = !folded[id];
+    panel.classList.toggle('folded', folded[id]);
+    try { localStorage.setItem(FOLD_KEY, JSON.stringify(folded)); } catch (e) { /* not kept, then */ }
+    // a chart drawn while folded had no width
+    if (!folded[id]) draw();
+  });
 }
 
 function summary() {
@@ -485,9 +520,10 @@ function summary() {
     ['Худший кадр', num(max(col('frameMax'))) + ' мс', max(col('frameMax')) > 50, 'за интервал'],
     ['Физика', frame ? Math.round(physics / frame * 100) + '%' : '—', false, 'кадра в среднем (' + num(physics) + ' мс)'],
     ['Скорость симуляции', num(last.sim), last.sim < 0.95, 'мин за интервал ' + num(min(col('sim')))],
-    ['Время в GC', num(avg(col('gcTime')), 1) + '%', avg(col('gcTime')) > 5, 'полных сборок: ' + num(col('gc2').reduce((a, b) => a + b, 0), 0)],
+    ['Время в GC', num(avg(col('gcTime')) * 10, 1) + ' мс', avg(col('gcTime')) > 5, 'за секунду · ' + 'полных сборок: ' + num(col('gc2').reduce((a, b) => a + b, 0), 0)],
     ['Память', num(last.working / 1024, 1) + ' ГБ', false, 'куча .NET ' + num(last.managed / 1024, 1) + ' ГБ'],
     ['Игроков онлайн', num(last.players, 0), false, 'макс ' + num(max(col('players')), 0)],
+    ['Гридов', last.grids == null ? '—' : num(last.grids, 0), false, max(col('grids')) == null ? 'пишется с версии от 06.10.2026' : 'макс ' + num(max(col('grids')), 0) + ', мин ' + num(min(col('grids')), 0)],
   ];
   $('#summary').innerHTML = cards.map(([k, v, bad, s]) => `<div class="card"><div class="k">${k}</div><div class="v ${bad ? 'bad' : ''}">${v}</div><div class="s">${s}</div></div>`).join('');
 }
@@ -562,9 +598,11 @@ async function load() {
     api('loadseries', { from, to, kind: 'component', top: 10 }),
     api('loadseries', { from, to, kind: 'plugin', top: 10 }),
     api('loadseries', { from, to, kind: 'pb', top: 40 }),
+    api('gridseries', { from, to, what: 'physics', top: 10 }),
+    api('gridseries', { from, to, what: 'logic', top: 10 }),
   ]);
   if (stale()) return;
-  [seriesData.component, seriesData.plugin, seriesData.pb] = series;
+  [seriesData.component, seriesData.plugin, seriesData.pb, seriesData.gridPhysics, seriesData.gridLogic] = series;
   drawSeriesCharts();
   status(state.points.length ? `${state.points.length} точек, ${fmt(state.from)} — ${fmt(state.to)}` : 'Нет записей за интервал');
 }

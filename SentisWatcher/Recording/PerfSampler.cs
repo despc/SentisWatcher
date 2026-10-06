@@ -461,9 +461,12 @@ namespace SentisWatcher.Recording
 
             // the server settling after the world loaded: counted and dropped, not charted
             if (!Warmup.Over) return;
+            var grids = 0;
+            foreach (var entity in Sandbox.Game.Entities.MyEntities.GetEntities())
+                if (entity is Sandbox.Game.Entities.MyCubeGrid grid && !grid.MarkedForClose && !grid.IsPreview) grids++;
             recorder.Store.Add(new Row(Table.Perf, Clock.Now, Clock.Now, frames,
                 frameAvg, frameMax, physicsAvg, physicsMax,
-                gc[0], gc[1], gc[2], gcTime, managed, priv, working, sim, players, blocks, components));
+                gc[0], gc[1], gc[2], gcTime, managed, priv, working, sim, players, blocks, components, grids));
         }
 
         private static string F(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);

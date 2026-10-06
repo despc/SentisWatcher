@@ -11,6 +11,19 @@ body.perf main { display: block; overflow: auto; }
 .summary .card .s { color: var(--dim); font-size: 11px; }
 .panel { margin-bottom: 16px; }
 .panel h3 { font-size: 14px; margin: 4px 0 4px; font-weight: 600; }
+/* a panel folds at its title (the performance page): the title stays, the rest goes */
+.panel.folds > h3 { cursor: pointer; user-select: none; }
+.panel.folds > h3::before { content: '▾'; display: inline-block; width: 14px; color: var(--dim); }
+.panel.folds.folded > h3::before { content: '▸'; }
+.panel.folds.folded > :not(h3) { display: none; }
+.panel.folds.folded > h3 > .dim { display: none; }
+.panel.folds.folded { margin-bottom: 4px; }
+/* two charts in a line, half the width each; one under the other on a narrow screen */
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.pair > .panel { min-width: 0; }
+/* the two titles a line each, so the charts stand level */
+.pair > .panel > h3 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 900px) { .pair { grid-template-columns: 1fr; } }
 .panel canvas { width: 100%; height: 220px; display: block; background: #181c22; border: 1px solid var(--line); border-radius: 4px; cursor: crosshair; }
 #cBlocks { height: 260px; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 5px; }

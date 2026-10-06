@@ -71,11 +71,11 @@ CREATE INDEX IF NOT EXISTS alerts_by_t ON alerts(t);
 -- of the period), the other parts of the frame in blocks ('entities_before:avg:max;entities_after:...;other:...'),
 -- collections by generation, the share of the time in GC (%), memory (MB), the simulation speed, players online;
 -- components: the part session by session component, each frame ('Sandbox.Game.World.MySector:avg:max;...', the
--- noticeable ones only)
+-- noticeable ones only); grids: how many grids the world has
 CREATE TABLE IF NOT EXISTS perf(
   id INTEGER PRIMARY KEY, t INTEGER NOT NULL, frames INTEGER, frame REAL, frame_max REAL, physics REAL, physics_max REAL,
   gc0 INTEGER, gc1 INTEGER, gc2 INTEGER, gc_time REAL, managed_mb REAL, private_mb REAL, working_mb REAL,
-  sim REAL, players INTEGER, blocks TEXT, components TEXT);
+  sim REAL, players INTEGER, blocks TEXT, components TEXT, grids INTEGER);
 CREATE INDEX IF NOT EXISTS perf_by_t ON perf(t);
 CREATE TABLE IF NOT EXISTS load(
   id INTEGER PRIMARY KEY, t INTEGER NOT NULL, kind TEXT NOT NULL, entity INTEGER, name TEXT, owner INTEGER, owner_name TEXT,
@@ -101,6 +101,7 @@ CREATE INDEX IF NOT EXISTS damage_by_t ON damage(t);
             ("inventories", "flows", "ALTER TABLE inventories ADD COLUMN flows TEXT"),
             ("load", "alloc_kb", "ALTER TABLE load ADD COLUMN alloc_kb REAL"),
             ("perf", "components", "ALTER TABLE perf ADD COLUMN components TEXT"),
+            ("perf", "grids", "ALTER TABLE perf ADD COLUMN grids INTEGER"),
         };
     }
 }

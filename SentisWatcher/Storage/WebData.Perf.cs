@@ -24,8 +24,10 @@ namespace SentisWatcher.Storage
                     if (!HasTable(db, "perf")) continue;
                     // (the session components by name only in the files written since 05.10.2026)
                     var withComponents = HasColumn(db, "perf", "components");
+                    // (the number of grids since 06.10.2026)
+                    var withGrids = withComponents && HasColumn(db, "perf", "grids");
                     using (var cmd = Command(db, "SELECT t, frames, frame, frame_max, physics, physics_max, gc0, gc1, gc2, gc_time, managed_mb, private_mb, working_mb, sim, players, blocks" +
-                                                 (withComponents ? ", components" : "") + " FROM perf WHERE t BETWEEN @a AND @b ORDER BY t", ("@a", from), ("@b", to)))
+                                                 (withComponents ? ", components" : "") + (withGrids ? ", grids" : "") + " FROM perf WHERE t BETWEEN @a AND @b ORDER BY t", ("@a", from), ("@b", to)))
                     using (var r = cmd.ExecuteReader())
                         while (r.Read())
                         {
@@ -47,6 +49,7 @@ namespace SentisWatcher.Storage
                             b.Players = Math.Max(b.Players, (int)D(r, 14));
                             if (!r.IsDBNull(15)) AddParts(b.Blocks, r.GetString(15), frames);
                             if (withComponents && !r.IsDBNull(16)) AddParts(b.Components, r.GetString(16), frames);
+                            if (withGrids && !r.IsDBNull(17)) b.Grids = Math.Max(b.Grids, (int)D(r, 17));
                         }
                 }
             var list = buckets.Values.Select(b =>
@@ -63,7 +66,7 @@ namespace SentisWatcher.Storage
                     ["logic"] = T(Math.Max(0, (b.Frame - b.Physics) / frames)),
                     ["gc0"] = b.Gc0, ["gc1"] = b.Gc1, ["gc2"] = b.Gc2, ["gcTime"] = R(b.GcTime / n),
                     ["managed"] = R(b.Managed / n), ["private"] = R(b.Private / n), ["working"] = R(b.Working / n),
-                    ["sim"] = R(b.Sim / n), ["players"] = b.Players,
+                    ["sim"] = R(b.Sim / n), ["players"] = b.Players, ["grids"] = b.Grids < 0 ? null : (object)b.Grids,
                     ["blocks"] = timed ? b.Blocks.ToDictionary(p => p.Key, p => new[] { R(p.Value.Sum / frames), R(p.Value.Max) }) : null,
                     ["components"] = timed && b.Components.Count > 0 ? b.Components.ToDictionary(p => p.Key, p => new[] { Math.Round(p.Value.Sum / frames, 4), R(p.Value.Max) }) : null,
                 };
@@ -93,23 +96,41 @@ namespace SentisWatcher.Storage
         /// One kind of load (session components, plugins) over time: for each minute row, each one's time in an average
         /// frame and its worst frame; the <paramref name="top"/> heaviest over the range by name, the others summed.
         /// </summary>
-        public object LoadSeries(long from, long to, string kind, int top)
+        public object LoadSeries(long from, long to, string kind, int top) =>
+            Series(from, to, top, kind == Recording.PbSampler.Kind, new[] { kind ?? "" }, (k, name) => name);
+
+        /// <summary>
+        /// The grids over time, the <paramref name="top"/> heaviest: by "physics" - each one's share of the physics step
+        /// (LoadSampler.GridPhysics, an estimate), by anything else - its logic: the updates of its blocks on the game
+        /// thread and the ones the game runs in parallel (while the game thread waits). By the grid's name.
+        /// </summary>
+        public object GridSeries(long from, long to, string what, int top)
+        {
+            const string parallelGrid = "grid: ";
+            return what == "physics"
+                ? Series(from, to, top, false, new[] { Recording.LoadSampler.GridPhysics }, (k, name) => name)
+                : Series(from, to, top, false, new[] { Recording.LoadSampler.Grid, Recording.LoadSampler.Parallel },
+                    (k, name) => k == Recording.LoadSampler.Grid ? name : name.StartsWith(parallelGrid) ? name.Substring(parallelGrid.Length) : null);
+        }
+
+        /// <summary>Rows of the kinds over time by name (<paramref name="nameOf"/> gives the name a row goes by, null to leave it out).</summary>
+        private object Series(long from, long to, int top, bool own, string[] kinds, Func<string, string, string> nameOf)
         {
             var times = new SortedSet<long>();
             var rows = new List<(long T, string Name, double Ms, double Max)>();
             var owners = new Dictionary<string, string>();
-            // the scripts' rows come at their own minute marks: the samples' marks are not theirs
-            var own = kind == Recording.PbSampler.Kind;
+            // (own: the scripts' rows come at their own minute marks, the samples' marks are not theirs)
             foreach (var db in Days(from, to))
                 using (db)
                 {
                     using (var check = new SQLiteCommand("SELECT 1 FROM sqlite_master WHERE type='table' AND name='load'", db))
                         if (check.ExecuteScalar() == null) continue;
-                    using (var cmd = new SQLiteCommand("SELECT t, kind, name, ms, max_ms, owner_name FROM load WHERE t BETWEEN @a AND @b AND (kind=@k OR kind=@total)", db))
+                    using (var cmd = new SQLiteCommand("SELECT t, kind, name, ms, max_ms, owner_name FROM load WHERE t BETWEEN @a AND @b AND (kind=@k OR kind=@k2 OR kind=@total)", db))
                     {
                         cmd.Parameters.AddWithValue("@a", from);
                         cmd.Parameters.AddWithValue("@b", to);
-                        cmd.Parameters.AddWithValue("@k", kind ?? "");
+                        cmd.Parameters.AddWithValue("@k", kinds[0]);
+                        cmd.Parameters.AddWithValue("@k2", kinds.Length > 1 ? kinds[1] : kinds[0]);
                         cmd.Parameters.AddWithValue("@total", Recording.LoadSampler.Total);
                         using (var r = cmd.ExecuteReader())
                             while (r.Read())
@@ -120,7 +141,8 @@ namespace SentisWatcher.Storage
                                 // (to the minute for the scripts: a block's rows of one flush share the mark)
                                 times.Add(t);
                                 if (total) continue;
-                                var name = r.IsDBNull(2) ? "" : r.GetString(2);
+                                var name = nameOf(r.GetString(1), r.IsDBNull(2) ? "" : r.GetString(2));
+                                if (name == null) continue;
                                 rows.Add((t, name, r.IsDBNull(3) ? 0 : r.GetDouble(3), r.IsDBNull(4) ? 0 : r.GetDouble(4)));
                                 if (!r.IsDBNull(5) && r.GetString(5).Length > 0) owners[name] = r.GetString(5);
                             }
@@ -187,7 +209,7 @@ namespace SentisWatcher.Storage
         private sealed class Bucket
         {
             public long T;
-            public int Rows, Players;
+            public int Rows, Players, Grids = -1;
             public long Frames, Gc0, Gc1, Gc2;
             public double Frame, FrameMax, Physics, PhysicsMax, GcTime, Managed, Private, Working, Sim;
             public readonly Dictionary<string, (double Sum, double Max)> Blocks = new Dictionary<string, (double, double)>();
