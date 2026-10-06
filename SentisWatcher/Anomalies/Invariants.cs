@@ -37,6 +37,16 @@ namespace SentisWatcher.Anomalies
             return null;
         }
 
+        /// <summary>
+        /// Whether a fraction of a whole item is the game's own doing. An assembler takes a recipe's ingredients divided
+        /// by the world's assembler efficiency (MyAssembler.FinishAssembling: amount * (1 / efficiency), kept to a
+        /// millionth): with an efficiency of 3 a piece of raw meat cooks as 0.333333 of a piece, which leaves thirds
+        /// and, after three of them, a millionth - every container of meat of such a world was an alert. So a fraction
+        /// of an item some recipe under the efficiency takes as an ingredient is not one, when the efficiency is not 1.
+        /// </summary>
+        public static bool FractionByRecipe(float assemblerEfficiency, bool ingredientOfAScaledRecipe) =>
+            ingredientOfAScaledRecipe && Math.Abs(assemblerEfficiency - 1f) > 1e-6f;
+
         /// <summary>Whether the inventory holds more than it can (a max of 0 or less is not checked).</summary>
         public static bool Overfilled(double volume, double maxVolume) =>
             maxVolume > 0 && !double.IsInfinity(maxVolume) && volume > maxVolume * (1 + OverfillTolerance);

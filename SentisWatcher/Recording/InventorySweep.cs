@@ -231,10 +231,25 @@ namespace SentisWatcher.Recording
                 seen?.Owner ?? 0, null, 0.0, 0.0, flows.Encode()));
         }
 
-        /// <summary>A block's name as a player sees it; with none, its type and subtype ("SurvivalKit/SurvivalKitLarge").</summary>
+        /// <summary>
+        /// A block's name as a player sees it; with none, its type and subtype ("SurvivalKit/SurvivalKitLarge").
+        /// Reading the name may throw: a block with no name of its own has its default one made in the getter, at the
+        /// first reading, in a StringBuilder all the readers share - two threads at it in the same moment (the first
+        /// second after the world is loaded) and ToString throws ArgumentOutOfRangeException "chunkLength", this time
+        /// and, the builder left broken, every time after. It threw here and the rest of the plugin's update of that
+        /// frame was lost (a test world, 06.10.2026). Such a block goes by its type.
+        /// </summary>
         public static string BlockName(MyCubeBlock block)
         {
-            var own = block.DisplayNameText;
+            string own = null;
+            try
+            {
+                own = block.DisplayNameText;
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                // the game's race over the default name (above)
+            }
             if (!string.IsNullOrWhiteSpace(own)) return own;
             var id = block.BlockDefinition?.Id;
             return id == null ? "" : id.Value.TypeId.ToString().Replace("MyObjectBuilder_", "") + "/" + id.Value.SubtypeName;
@@ -263,7 +278,7 @@ namespace SentisWatcher.Recording
                 {
                     if (Invariants.TankOverfilled(tank.FilledRatio))
                         _recorder.Alert("tank_overfilled", ownerIdentity, owner.EntityId,
-                            $"{tank.CustomName} on {tank.CubeGrid.DisplayName}: filled {tank.FilledRatio:0.####}");
+                            $"{BlockName(tank)} on {tank.CubeGrid.DisplayName}: filled {tank.FilledRatio:0.####}");
                     gasRaw = (long)(tank.FilledRatio * tank.Capacity * 1_000_000);
                     _stacks.Add(new ItemStack("Gas", tank.BlockDefinition.StoredGasId.SubtypeName, gasRaw));
                 }
@@ -349,16 +364,51 @@ namespace SentisWatcher.Recording
             {
                 if (stack.Type == "Gas") continue;
                 var bad = Invariants.BadAmount(stack.Type, stack.Raw);
-                if (bad != null)
-                    _recorder.Alert("bad_amount", ownerIdentity, owner.EntityId,
-                        $"{Describe(owner)}: {stack.Type}/{stack.Subtype} {stack.Amount} ({bad})");
+                if (bad == null) continue;
+                var item = stack.Type + "/" + stack.Subtype;
+                // the game's own thirds (a recipe's ingredient under the world's assembler efficiency)
+                if (stack.Raw > 0 && Invariants.FractionByRecipe(Sandbox.Game.World.MySession.Static?.AssemblerEfficiencyMultiplier ?? 1f, ScaledIngredients().Contains(item))) continue;
+                // once for a stack as it is, not every hour and at every start
+                var amount = stack.Amount.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                _knownAmounts.ReadOnce(_recorder.Store);
+                if (!_knownAmounts.First(owner.EntityId, item, amount)) continue;
+                _recorder.Alert(KnownAmounts.AlertKind, ownerIdentity, owner.EntityId, $"{Describe(owner)}: {item} {amount} ({bad})",
+                    limitBy: KnownAmounts.Key(owner.EntityId, item, amount).GetHashCode());
             }
             if (Invariants.Overfilled((double)inventory.CurrentVolume, (double)inventory.MaxVolume))
                 _recorder.Alert("overfilled", ownerIdentity, owner.EntityId,
                     $"{Describe(owner)}: volume {(double)inventory.CurrentVolume:0.###} of {(double)inventory.MaxVolume:0.###}");
         }
 
+        private readonly KnownAmounts _knownAmounts = new KnownAmounts();
+        private static HashSet<string> _scaledIngredients;
+
+        /// <summary>
+        /// The items ("Type/Subtype") that some recipe takes as an ingredient divided by the world's assembler efficiency
+        /// (the recipes that ignore it left out). Read from the definitions once, game thread.
+        /// </summary>
+        private static HashSet<string> ScaledIngredients()
+        {
+            if (_scaledIngredients != null) return _scaledIngredients;
+            var set = new HashSet<string>();
+            try
+            {
+                foreach (var blueprint in Sandbox.Definitions.MyDefinitionManager.Static.GetBlueprintDefinitions())
+                {
+                    if (blueprint == null || blueprint.IgnoreEfficiencyMultiplier || blueprint.Prerequisites == null) continue;
+                    foreach (var ingredient in blueprint.Prerequisites)
+                        set.Add(InventoryCodec.ShortType(ingredient.Id.TypeId.ToString()) + "/" + ingredient.Id.SubtypeName);
+                }
+            }
+            catch (Exception)
+            {
+                // the definitions not there yet: none known, asked again
+                return set;
+            }
+            return _scaledIngredients = set;
+        }
+
         private static string Describe(MyEntity owner) =>
-            owner is MyCubeBlock block ? block.DisplayNameText + " on " + block.CubeGrid.DisplayName : owner.DisplayName ?? owner.GetType().Name;
+            owner is MyCubeBlock block ? BlockName(block) + " on " + block.CubeGrid.DisplayName : owner.DisplayName ?? owner.GetType().Name;
     }
 }

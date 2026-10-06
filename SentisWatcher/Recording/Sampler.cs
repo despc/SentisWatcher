@@ -106,7 +106,7 @@ namespace SentisWatcher.Recording
             {
                 var block = controlled as MyCubeBlock;
                 _recorder.Event("control", identity, now.Grid != 0 ? now.Grid : now.Controlled, now.Position,
-                    detail: block != null ? block.DisplayNameText + " on " + block.CubeGrid.DisplayName : controlled?.DisplayName);
+                    detail: block != null ? InventorySweep.BlockName(block) + " on " + block.CubeGrid.DisplayName : controlled?.DisplayName);
             }
         }
 

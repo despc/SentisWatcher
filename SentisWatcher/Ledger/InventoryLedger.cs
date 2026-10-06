@@ -163,7 +163,7 @@ namespace SentisWatcher.Ledger
         }
 
         public static string Describe(MyEntity entity) =>
-            entity is MyCubeBlock block ? block.DisplayNameText + " on " + block.CubeGrid.DisplayName : entity.DisplayName ?? entity.GetType().Name;
+            entity is MyCubeBlock block ? Recording.InventorySweep.BlockName(block) + " on " + block.CubeGrid.DisplayName : entity.DisplayName ?? entity.GetType().Name;
     }
 
     /// <summary>"Ore/Iron" for an item, as the day files name it; cached, the hooks ask often.</summary>

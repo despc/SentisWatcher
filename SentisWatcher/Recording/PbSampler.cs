@@ -93,7 +93,7 @@ namespace SentisWatcher.Recording
                 var owner = block.OwnerId != 0 ? block.OwnerId : Identities.Owner(grid);
                 var ownerName = owner != 0 ? players?.TryGetIdentity(owner)?.DisplayName ?? "" : "";
                 // the block's own name and its grid's: two "Programmable block" of two bases are two lines
-                var name = (block.CustomName?.ToString() ?? block.DisplayNameText ?? "PB") + " @ " + (grid?.DisplayName ?? "?");
+                var name = InventorySweep.BlockName(block) + " @ " + (grid?.DisplayName ?? "?");
                 recorder.Store.Add(new Row(Table.Load, t, t, Kind, block.EntityId, name, owner, ownerName, frames, Ms(e.Ticks) / frames, Ms(e.Max), null));
             }
         }

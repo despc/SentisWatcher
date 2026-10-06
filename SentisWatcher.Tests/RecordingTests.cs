@@ -137,6 +137,20 @@ namespace SentisWatcher.Tests
             Assert.NotNull(Invariants.BadAmount("Ore", -1));
             Assert.Null(Invariants.BadAmount("Ore", 1_500_000));
             Assert.NotNull(Invariants.BadAmount("Component", 1_500_000));
+            // a third of a piece of meat in a world with an assembler efficiency of 3 is the game's own
+            Assert.True(Invariants.FractionByRecipe(3f, ingredientOfAScaledRecipe: true));
+            Assert.False(Invariants.FractionByRecipe(1f, ingredientOfAScaledRecipe: true));
+            Assert.False(Invariants.FractionByRecipe(3f, ingredientOfAScaledRecipe: false));
+            // the same stack with the same amount is an alert once, also after the alerts are read back from a day file
+            var known = new KnownAmounts();
+            Assert.True(known.First(7, "Component/SteelPlate", "2540.999936"));
+            Assert.False(known.First(7, "Component/SteelPlate", "2540.999936"));
+            Assert.True(known.First(7, "Component/SteelPlate", "2541.5"));
+            Assert.True(known.First(8, "Component/SteelPlate", "2540.999936"));
+            var read = new KnownAmounts();
+            read.Remember(KnownAmounts.KeyOf(9, "Орудие: (3000/3000) on Base: Component/SteelPlate 2540.999936 (a fraction of a Component)"));
+            Assert.False(read.First(9, "Component/SteelPlate", "2540.999936"));
+            Assert.Null(KnownAmounts.KeyOf(9, "volume 5 of 3"));
             Assert.Null(Invariants.BadAmount("Component", 3_000_000));
         }
 
