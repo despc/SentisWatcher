@@ -16,6 +16,12 @@ namespace SentisWatcher.Tests
             try { Directory.Delete(_folder, true); } catch { }
         }
 
+        // the rows of these tests have fixed dates (September 2026): kept however long ago that was. With 14 days the
+
+        // store deleted their day files at its start from 06.10.2026 on, and the tests failed
+
+        private const int KeepAll = 100000;
+
         private static long At(int day, int hour) => Clock.ToMs(new DateTime(2026, 9, day, hour, 0, 0, DateTimeKind.Utc));
 
         private static long Count(WatcherStore store, DateTime day, string table)
@@ -28,7 +34,7 @@ namespace SentisWatcher.Tests
         [Fact]
         public void Rows_go_to_the_file_of_their_day_and_can_be_queried()
         {
-            var store = new WatcherStore(_folder, () => 14);
+            var store = new WatcherStore(_folder, () => KeepAll);
             store.Add(new Row(Table.Names, At(22, 23), 7L, "player", "Tester", 0L, 76561198000000001L, At(22, 23)));
             store.Add(new Row(Table.Names, At(22, 23), 99L, "grid", "Big Ship", 7L, null, At(22, 23)));
             store.Add(new Row(Table.PlayerPos, At(22, 23), At(22, 23), 7L, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 100.0, 0L, 0L));
@@ -41,7 +47,7 @@ namespace SentisWatcher.Tests
 
             Assert.True(File.Exists(DayFiles.PathOf(_folder, new DateTime(2026, 9, 22))));
             Assert.True(File.Exists(DayFiles.PathOf(_folder, new DateTime(2026, 9, 23))));
-            var reader = new WatcherStore(_folder, () => 14);
+            var reader = new WatcherStore(_folder, () => KeepAll);
             try
             {
                 Assert.Equal(1, Count(reader, new DateTime(2026, 9, 22), "player_pos"));

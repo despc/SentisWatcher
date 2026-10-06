@@ -27,11 +27,17 @@ namespace SentisWatcher.Tests
         private const long Kit = 139215407649218102;        // a block with no name of its own
         private const long Rover = 105745445387715888;      // the kit's grid
 
+        // the rows of these tests have fixed dates (September 2026): kept however long ago that was. With 14 days the
+
+        // store deleted their day files at its start from 06.10.2026 on, and the tests failed
+
+        private const int KeepAll = 100000;
+
         private static long At(int minute) => Clock.ToMs(new DateTime(2026, 9, 23, 10, minute, 0, DateTimeKind.Utc));
 
         public WebTests()
         {
-            var writer = new WatcherStore(_folder, () => 14);
+            var writer = new WatcherStore(_folder, () => KeepAll);
             writer.Add(new Row(Table.Names, At(0), Player, "player", "Tester", 0L, 76561198000000001L, At(0)));
             writer.Add(new Row(Table.Names, At(0), Grid, "grid", "Big Ship", Player, null, At(0)));
             writer.Add(new Row(Table.Names, At(0), Cargo, "block", "Cargo 1", Grid, null, At(0)));
@@ -61,7 +67,7 @@ namespace SentisWatcher.Tests
             writer.Add(new Row(Table.Names, At(0), Kit, "block", "", Rover, null, At(0)));
             writer.Add(new Row(Table.Inventories, At(2), At(2), Kit, 1, Rover, Player, "Ingot/Iron:3", 0.1, 1.0));
             writer.Dispose();
-            _store = new WatcherStore(_folder, () => 14);
+            _store = new WatcherStore(_folder, () => KeepAll);
         }
 
         public void Dispose()
@@ -327,7 +333,7 @@ namespace SentisWatcher.Tests
             try
             {
                 var yesterday = Clock.ToMs(new DateTime(2026, 9, 22, 20, 0, 0, DateTimeKind.Utc));
-                using (var writer = new WatcherStore(folder, () => 14))
+                using (var writer = new WatcherStore(folder, () => KeepAll))
                 {
                     writer.Add(new Row(Table.Inventories, yesterday, yesterday, OldBody, 0, null, Player, "Ore/Stone:7", 0.1, 1.0));
                     writer.Add(new Row(Table.Inventories, yesterday, yesterday, Cargo, 0, Grid, Player, "Ore/Iron:1", 0.1, 1.0));
@@ -337,7 +343,7 @@ namespace SentisWatcher.Tests
                     // the cargo went away today: its last row has no items
                     writer.Add(new Row(Table.Inventories, At(3), At(3), Cargo, 0, Grid, Player, null, 0.0, 0.0, "gone|Ore/Iron:-1"));
                 }
-                using (var reader = new WatcherStore(folder, () => 14))
+                using (var reader = new WatcherStore(folder, () => KeepAll))
                 {
                     var held = reader.LastHeld(new DateTime(2026, 9, 22), new DateTime(2026, 9, 23)).ToDictionary(h => (h.Entity, h.Inv));
                     Assert.Equal(3, held.Count);
