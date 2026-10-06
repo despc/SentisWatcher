@@ -85,6 +85,8 @@ namespace SentisWatcher.Storage
             return connection;
         }
 
+        private DateTime _nativeMissingLogged;
+
         private void Loop()
         {
             DeleteExpired(DateTime.UtcNow.Date);
@@ -97,7 +99,17 @@ namespace SentisWatcher.Storage
                 }
                 catch (Exception e)
                 {
-                    Log.Error(e, "SentisWatcher: writing failed; the batch is lost");
+                    // (the native SQLite missing is the same every batch: said once a minute, with what to do)
+                    if (e is DllNotFoundException)
+                    {
+                        if ((DateTime.UtcNow - _nativeMissingLogged).TotalSeconds >= 60)
+                        {
+                            _nativeMissingLogged = DateTime.UtcNow;
+                            Log.Error("SentisWatcher: nothing is recorded - the native SQLite did not load (" + e.Message + "). Put all the plugin's files into " +
+                                      "Plugins/SentisWatcher (SentisWatcher.dll, System.Data.SQLite.dll, manifest.xml, " + NativeSqlite.ShippedName + "); the batch is lost");
+                        }
+                    }
+                    else Log.Error(e, "SentisWatcher: writing failed; the batch is lost");
                     CloseConnection();
                     Thread.Sleep(1000);
                 }

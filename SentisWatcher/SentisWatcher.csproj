@@ -56,6 +56,9 @@
     <None Include="manifest.xml" CopyToOutputDirectory="PreserveNewest" />
     <!-- the web view's page, served from the plugin itself -->
     <EmbeddedResource Include="Web\**\*" LogicalName="Web/%(RecursiveDir)%(Filename)%(Extension)" />
+    <!-- the native SQLite inside the plugin itself: SentisWatcher.dll sent to someone without the .bin beside it (or the
+         plugin put in as a zip) wrote nothing - "Unable to load DLL 'SQLite.Interop.dll'" on every batch -->
+    <EmbeddedResource Include="$(NuGetPackageRoot)stub.system.data.sqlite.core.netframework\1.0.119\build\net46\x64\SQLite.Interop.dll" LogicalName="Native/SQLite.Interop.x64.dll" Link="Native\SQLite.Interop.x64.dll" />
   </ItemGroup>
 
   <!--
