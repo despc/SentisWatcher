@@ -1,0 +1,10 @@
+SentisWatcher
+Copyright 2026 despc
+
+Source: https://github.com/despc/SentisWatcher
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+A copy or a derivative of this work has to keep this notice.
+
+This product is distributed together with System.Data.SQLite and SQLite,
+which are in the public domain: https://system.data.sqlite.org/
