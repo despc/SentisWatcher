@@ -155,12 +155,23 @@ namespace SentisWatcher.Web
                     Send(response, 403, "text/plain", "local only");
                     return;
                 }
+                var path = request.Url.AbsolutePath.TrimEnd('/');
+                // the one thing the page may change: the every-frame timing of the load, switched on for a while and
+                // off (the performance page's "detailed measurement"). It touches nothing of the game and ends by
+                // itself; all the rest is read only
+                if (request.HttpMethod == "POST" && path == "/api/burst")
+                {
+                    if (int.TryParse(request.QueryString["seconds"], NumberStyles.Integer, CultureInfo.InvariantCulture, out var seconds))
+                        Recording.LoadSampler.Burst(seconds);
+                    response.AddHeader("Cache-Control", "no-store");
+                    SendJson(response, BurstState());
+                    return;
+                }
                 if (request.HttpMethod != "GET")
                 {
                     Send(response, 405, "text/plain", "read only");
                     return;
                 }
-                var path = request.Url.AbsolutePath.TrimEnd('/');
                 if (path.StartsWith("/api/"))
                 {
                     Http.Live.GameMs = 0;
@@ -204,6 +215,13 @@ namespace SentisWatcher.Web
             }
         }
 
+        /// <summary>Whether every frame is being timed now and for how long yet.</summary>
+        private static object BurstState() => new
+        {
+            on = Recording.LoadSampler.Bursting, left = Recording.LoadSampler.BurstSecondsLeft, max = Recording.LoadSampler.MaxBurstSeconds,
+            recording = Recording.Recorder.Current != null,
+        };
+
         /// <summary>The API: the call's name and its query; null when there is no such call.</summary>
         public object Api(string call, System.Collections.Specialized.NameValueCollection q)
         {
@@ -243,6 +261,8 @@ namespace SentisWatcher.Web
                 case "structures": return Http.Live.Structures();
                 case "structure": return Http.Live.Structure(L("id"));
                 case "now": return new { now, offsetMinutes = Clock.OffsetMinutes(now), zone = Clock.Zone(now) };
+                case "burst": return BurstState();
+                case "spikes": return _data.Spikes(from, to, (int)Math.Min(L("top", 100), 1000));
                 default: return null;
             }
         }

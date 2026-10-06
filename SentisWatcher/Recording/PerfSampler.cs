@@ -291,6 +291,7 @@ namespace SentisWatcher.Recording
         private static PerformanceCounter _gcTime;
         private static readonly object Lock = new object();
         private static double _gcTimeSum, _managedSum, _privateSum, _workingSum;
+        private static double _lastGcTime, _lastManaged, _lastPrivate, _lastWorking;
         private static int _samples;
         private static bool _counterFailed;
 
@@ -414,7 +415,8 @@ namespace SentisWatcher.Recording
         public static void Tick(Recorder recorder)
         {
             var now = DateTime.UtcNow;
-            if (now - _last < Every) return;
+            // (a row a second while the detailed measurement runs: the frame's chart as fine as the others then)
+            if (now - _last < (LoadSampler.Bursting ? LoadSampler.BurstEvery : Every)) return;
             _last = now;
 
             double Ms(long ticks) => ticks * 1000.0 / Stopwatch.Frequency;
@@ -450,10 +452,15 @@ namespace SentisWatcher.Recording
             double gcTime, managed, priv, working;
             lock (Lock)
             {
-                var n = Math.Max(1, _samples);
-                gcTime = _gcTimeSum / n; managed = _managedSum / n; priv = _privateSum / n; working = _workingSum / n;
-                _gcTimeSum = _managedSum = _privateSum = _workingSum = 0;
-                _samples = 0;
+                // (the memory is sampled once a second: a row a second - the detailed measurement - may come between two
+                // samples, and then says what the last one said, not zero)
+                if (_samples > 0)
+                {
+                    _lastGcTime = _gcTimeSum / _samples; _lastManaged = _managedSum / _samples; _lastPrivate = _privateSum / _samples; _lastWorking = _workingSum / _samples;
+                    _gcTimeSum = _managedSum = _privateSum = _workingSum = 0;
+                    _samples = 0;
+                }
+                gcTime = _lastGcTime; managed = _lastManaged; priv = _lastPrivate; working = _lastWorking;
             }
             var sim = (double)Sandbox.Game.Multiplayer.Sync.ServerSimulationRatio;
             // the animals have players of their own: not counted

@@ -108,16 +108,24 @@ function chart(canvas, series, opts = {}) {
   for (const s of shown.filter((s) => s.kind !== 'bar')) {
     g.strokeStyle = s.color; g.lineWidth = s.width || 1.6; g.setLineDash(s.dash || []);
     g.beginPath();
-    let pen = false, lastT = null;
+    // a gap in the data (the server was down): the line breaks. How long a gap is, is the chart's to say (opts.gap):
+    // judged by the average distance between the points, the points a minute apart beside a detailed measurement's
+    // points a second apart were all "gaps", and the chart outside the measurement was empty
+    const gapMs = opts.gap ?? Math.max(15_000, (state.to - state.from) / Math.max(1, pts.length) * 2.5);
+    let pen = false, lastT = null, alone = null;
+    const dots = [];
     for (let i = 0; i < pts.length; i++) {
       const v = s.values[i];
-      // a gap in the data (the server was down): the line breaks
-      const gap = lastT !== null && pts[i].t - lastT > Math.max(15_000, (state.to - state.from) / Math.max(1, pts.length) * 2.5);
-      if (v == null || gap) { pen = false; if (v == null) continue; }
-      if (!pen) { g.moveTo(x(i), y(v, s.axis)); pen = true; } else g.lineTo(x(i), y(v, s.axis));
+      const gap = lastT !== null && pts[i].t - lastT > gapMs;
+      if (v == null || gap) { if (alone !== null) dots.push(alone); alone = null; pen = false; if (v == null) continue; }
+      if (!pen) { g.moveTo(x(i), y(v, s.axis)); pen = true; alone = [x(i), y(v, s.axis)]; } else { g.lineTo(x(i), y(v, s.axis)); alone = null; }
       lastT = pts[i].t;
     }
+    if (alone !== null) dots.push(alone);
     g.stroke(); g.setLineDash([]);
+    // a point with no neighbour is a dot, not nothing
+    g.fillStyle = s.color;
+    for (const [dx, dy] of dots) g.fillRect(dx - 1.5, dy - 1.5, 3, 3);
   }
   canvas._chart = { series: shown, x, left, pw, pts };
   // the range picked with the mouse: on every chart, they share the time axis
@@ -452,11 +460,12 @@ function componentName(full) {
   return COMPONENT_NAMES[short] ? `${COMPONENT_NAMES[short]} <span class="dim">(${short})</span>` : short;
 }
 
-const seriesData = { component: null, plugin: null, pb: null, gridPhysics: null, gridLogic: null };
+const seriesData = { component: null, plugin: null, pb: null, gridPhysics: null, gridLogic: null, blockTypes: null };
 function drawSeries(kind, canvas, legendEl, nameOf, noteEl) {
   const d = seriesData[kind];
   if (!d || !d.t.length) {
     noteEl.textContent = kind === 'pb' ? 'За этот интервал ни один программируемый блок не запускался.'
+      : kind === 'blockTypes' && d && d.on ? 'За этот интервал замеров нет (типы блоков пишутся с версии от 06.10.2026).'
       : kind === 'gridPhysics' && d && d.on ? 'За этот интервал замеров нет (физика по гридам пишется с версии от 06.10.2026, и только когда есть активные гриды).'
       : d && !d.on ? 'Замер выключен (Torch → SentisWatcher → Performance, или !watch load on).' : 'За этот интервал замеров нет.';
     chart(canvas, [], { points: [] });
@@ -464,21 +473,31 @@ function drawSeries(kind, canvas, legendEl, nameOf, noteEl) {
     return;
   }
   noteEl.textContent = '';
+  // "the others" of the grids and of the block types are dozens of them summed: a line above every one shown, which
+  // flattens them. Not drawn until asked for (a click on it in the legend); its number is in the legend all the same
+  const othersKey = kind + ':';
+  if (['blockTypes', 'gridLogic', 'gridPhysics'].includes(kind) && state.hidden[othersKey] === undefined) state.hidden[othersKey] = true;
   const pts = d.t.map((t) => ({ t }));
   const series = d.series.map((s, i) => ({
     key: kind + ':' + s.name, name: nameOf(s.name, s), color: s.name ? COLORS[i % COLORS.length] : '#bdc3c7', unit: 'мс',
     values: s.ms, maxes: s.max,
   }));
-  chart(canvas, series, { points: pts, leftMax: niceMax(Math.max(kind === 'pb' ? 0.02 : 0.5, ...series.filter((s) => !state.hidden[s.key]).map((s) => (max(s.values) || 0) * 1.3))) });
-  legend(legendEl, series, (s) => ' ' + num(avg(s.values), 3) + ', худший кадр ' + num(max(s.maxes), 1));
+  // (the rows come once a minute, once a second in a detailed measurement: three minutes without one is a gap)
+  chart(canvas, series, { points: pts, gap: 180_000, leftMax: niceMax(Math.max(kind === 'pb' ? 0.02 : 0.5, ...series.filter((s) => !state.hidden[s.key]).map((s) => (max(s.values) || 0) * 1.3))) });
+  const counts = Object.fromEntries(d.series.map((s) => [kind + ':' + s.name, s.count]));
+  legend(legendEl, series, (s) => ' ' + num(avg(s.values), 3) + ', худший кадр ' + num(max(s.maxes), 1) +
+    (counts[s.key] != null ? ', ' + num(counts[s.key], counts[s.key] < 10 ? 1 : 0) + ' за кадр' : ''));
 }
 function drawSeriesCharts() {
   drawSeries('component', $('#cComponents'), $('#lComponents'), componentName, $('#nComponents'));
   drawSeries('plugin', $('#cPlugins'), $('#lPlugins'), (n) => n || 'остальные', $('#nPlugins'));
   drawSeries('pb', $('#cPb'), $('#lPb'), (n, s) => n ? esc(n) + (s.owner ? ` <span class="dim">— ${esc(s.owner)}</span>` : ' <span class="dim">— без владельца</span>') : 'остальные', $('#nPb'));
-  const grid = (n, s) => n ? esc(n) + (s.owner ? ` <span class="dim">— ${esc(s.owner)}</span>` : '') : 'остальные';
+  const grid = (n, s) => n ? esc(n) + (s.owner ? ` <span class="dim">— ${esc(s.owner)}</span>` : '') : `остальные ${s.others || ''} вместе`;
   drawSeries('gridPhysics', $('#cGridPhysics'), $('#lGridPhysics'), grid, $('#nGridPhysics'));
   drawSeries('gridLogic', $('#cGridLogic'), $('#lGridLogic'), grid, $('#nGridLogic'));
+  // (the others: how many types they are - together they may be more than any one shown - and where they all are)
+  drawSeries('blockTypes', $('#cBlockTypes'), $('#lBlockTypes'),
+    (n, s) => n ? esc(n) : `остальные ${s.others || ''} типов вместе <span class="dim">(все — в таблице «Кто нагружает игровой поток», вкладка «Типы блоков»)</span>`, $('#nBlockTypes'));
 }
 
 // ------------------------------------------------------------------ panels fold at their titles
@@ -531,7 +550,7 @@ function summary() {
 // ------------------------------------------------------------------ who loads the game thread (/api/load)
 
 const LOAD_TABS = [
-  ['player', 'Игроки'], ['grid', 'Гриды'], ['plugin', 'Плагины'], ['component', 'Компоненты сессии'],
+  ['player', 'Игроки'], ['grid', 'Гриды'], ['block_type', 'Типы блоков'], ['plugin', 'Плагины'], ['component', 'Компоненты сессии'],
   ['system', 'Движок'], ['entity_component', 'Компоненты сущностей'], ['parallel', 'Параллельно'], ['other', 'Прочие сущности'], ['character', 'Персонажи'],
 ];
 const SYSTEM_NAMES = {
@@ -594,15 +613,17 @@ async function load() {
   if (stale()) return;
   loadData = loaded;
   drawLoad();
+  api('spikes', { from, to, top: 50 }).then((d) => { if (!stale()) { spikesData = d; drawSpikes(); } }).catch(() => {});
   const series = await Promise.all([
     api('loadseries', { from, to, kind: 'component', top: 10 }),
     api('loadseries', { from, to, kind: 'plugin', top: 10 }),
     api('loadseries', { from, to, kind: 'pb', top: 40 }),
     api('gridseries', { from, to, what: 'physics', top: 10 }),
     api('gridseries', { from, to, what: 'logic', top: 10 }),
+    api('loadseries', { from, to, kind: 'block_type', top: 20 }),
   ]);
   if (stale()) return;
-  [seriesData.component, seriesData.plugin, seriesData.pb, seriesData.gridPhysics, seriesData.gridLogic] = series;
+  [seriesData.component, seriesData.plugin, seriesData.pb, seriesData.gridPhysics, seriesData.gridLogic, seriesData.blockTypes] = series;
   drawSeriesCharts();
   status(state.points.length ? `${state.points.length} точек, ${fmt(state.from)} — ${fmt(state.to)}` : 'Нет записей за интервал');
 }
@@ -616,6 +637,59 @@ function setSpan(span) {
   $('#to').value = toInput(now);
   load();
 }
+
+// ------------------------------------------------------------------ the long frames (/api/spikes)
+
+const KIND_NAMES = { grid: 'грид', system: 'движок', component: 'мод/система', plugin: 'плагин', character: 'персонаж', parallel: 'параллельно', entity_component: 'компонент', other: 'сущность' };
+let spikesData = null;
+function drawSpikes() {
+  const d = spikesData;
+  if (!d || !d.rows.length) {
+    $('#nSpikes').textContent = '';
+    $('#spikesTable').innerHTML = '<tr><td class="dim">За этот интервал долгих кадров среди замеренных нет.</td></tr>';
+    return;
+  }
+  $('#nSpikes').textContent = `(${d.total}` + (d.total > d.rows.length ? `, показаны ${d.rows.length} самых длинных)` : ')');
+  const part = (p) => `<b>${esc(p.kind === 'system' ? (SYSTEM_NAMES[p.name] || p.name) : p.kind === 'component' ? p.name.split('.').pop() : p.name)}</b> ` +
+    `<span class="dim">${KIND_NAMES[p.kind] || p.kind}</span> ${num(p.ms, 1)}`;
+  $('#spikesTable').innerHTML = '<tr><th>Когда</th><th class="n">Кадр, мс</th><th title="Сборки мусора в этом кадре по поколениям 0/1/2">GC</th><th>Из чего состоит (мс)</th></tr>' +
+    d.rows.map((r) => `<tr><td>${fmt(r.t)}</td><td class="n ${r.ms > 50 ? 'bad' : ''}">${num(r.ms, 1)}</td><td>${r.gc.some((g) => g) ? r.gc.join('/') : '<span class="dim">—</span>'}</td>` +
+      `<td class="parts">${r.parts.filter((p) => p.ms >= 0.5).slice(0, 5).map(part).join(' · ') || '<span class="dim">ни одна часть не дольше 0,5 мс</span>'}` +
+      `${r.untimed >= 1 ? ` · <span class="dim">не замерено ${num(r.untimed, 1)}</span>` : ''}</td></tr>`).join('');
+}
+
+// ------------------------------------------------------------------ the detailed measurement: every frame timed for a while (/api/burst)
+
+let burst = { on: false, left: 0 };
+function drawBurst() {
+  $('#burstFor').hidden = $('#burstStart').hidden = burst.on;
+  $('#burstLeft').hidden = $('#burstStop').hidden = !burst.on;
+  if (burst.on) $('#burstLeft').textContent = `идёт детальный замер, осталось ${Math.floor(burst.left / 60)}:${pad(burst.left % 60)}`;
+}
+async function burstCall(seconds) {
+  try {
+    const url = new URL('/api/burst', location.origin);
+    if (seconds != null) url.searchParams.set('seconds', seconds);
+    const r = await fetch(url, { method: seconds != null ? 'POST' : 'GET' });
+    const was = burst.on;
+    burst = await r.json();
+    drawBurst();
+    // it ended (by itself or stopped): what it wrote is to be seen
+    if (was && !burst.on) load();
+  } catch (e) {
+    status('Детальный замер: ' + e.message, true);
+  }
+}
+$('#burstStart').addEventListener('click', () => burstCall(Number($('#burstFor').value)));
+$('#burstStop').addEventListener('click', () => burstCall(0));
+burstCall();
+let burstTick = 0;
+setInterval(() => {
+  if (document.hidden) return;
+  // the seconds run by the page's clock, the server is asked every 5 s while it runs and every 15 s otherwise
+  if (burst.on && burst.left > 0) { burst.left--; drawBurst(); }
+  if (++burstTick % (burst.on ? 5 : 15) === 0) burstCall();
+}, 1000);
 
 // ------------------------------------------------------------------ who is online: now, not from the records
 

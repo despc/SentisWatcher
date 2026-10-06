@@ -102,6 +102,7 @@ CREATE INDEX IF NOT EXISTS damage_by_t ON damage(t);
             ("load", "alloc_kb", "ALTER TABLE load ADD COLUMN alloc_kb REAL"),
             ("perf", "components", "ALTER TABLE perf ADD COLUMN components TEXT"),
             ("perf", "grids", "ALTER TABLE perf ADD COLUMN grids INTEGER"),
+            ("load", "count", "ALTER TABLE load ADD COLUMN count REAL"),
         };
     }
 }

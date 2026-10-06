@@ -119,13 +119,16 @@ namespace SentisWatcher.Storage
             var times = new SortedSet<long>();
             var rows = new List<(long T, string Name, double Ms, double Max)>();
             var owners = new Dictionary<string, string>();
+            // (for the block types: how many updates of the type a frame, averaged over its rows)
+            var counts = new Dictionary<string, (double Sum, int Rows)>();
             // (own: the scripts' rows come at their own minute marks, the samples' marks are not theirs)
             foreach (var db in Days(from, to))
                 using (db)
                 {
                     using (var check = new SQLiteCommand("SELECT 1 FROM sqlite_master WHERE type='table' AND name='load'", db))
                         if (check.ExecuteScalar() == null) continue;
-                    using (var cmd = new SQLiteCommand("SELECT t, kind, name, ms, max_ms, owner_name FROM load WHERE t BETWEEN @a AND @b AND (kind=@k OR kind=@k2 OR kind=@total)", db))
+                    var withCount = WatcherStore.HasColumn(db, "load", "count");
+                    using (var cmd = new SQLiteCommand("SELECT t, kind, name, ms, max_ms, owner_name" + (withCount ? ", count" : "") + " FROM load WHERE t BETWEEN @a AND @b AND (kind=@k OR kind=@k2 OR kind=@total)", db))
                     {
                         cmd.Parameters.AddWithValue("@a", from);
                         cmd.Parameters.AddWithValue("@b", to);
@@ -145,6 +148,11 @@ namespace SentisWatcher.Storage
                                 if (name == null) continue;
                                 rows.Add((t, name, r.IsDBNull(3) ? 0 : r.GetDouble(3), r.IsDBNull(4) ? 0 : r.GetDouble(4)));
                                 if (!r.IsDBNull(5) && r.GetString(5).Length > 0) owners[name] = r.GetString(5);
+                                if (withCount && !r.IsDBNull(6))
+                                {
+                                    counts.TryGetValue(name, out var was);
+                                    counts[name] = (was.Sum + r.GetDouble(6), was.Rows + 1);
+                                }
                             }
                     }
                 }
@@ -174,15 +182,56 @@ namespace SentisWatcher.Storage
             {
                 ["name"] = n, ["ms"] = ms[n].Select(v => Math.Round(v, 4)).ToList(), ["max"] = max[n].Select(v => R(v)).ToList(),
                 ["owner"] = owners.TryGetValue(n, out var owner) ? owner : "",
+                ["count"] = counts.TryGetValue(n, out var count) && count.Rows > 0 ? (object)Math.Round(count.Sum / count.Rows, 1) : null,
             }).ToList();
             if (rows.Any(r => !chosen.Contains(r.Name)))
                 series.Add(new Dictionary<string, object>
                 {
                     ["name"] = "", ["ms"] = others.Select(v => Math.Round(v, 4)).ToList(), ["max"] = othersMax.Select(v => R(v)).ToList(),
+                    // how many they are: "the others" of seventy block types is more than any one of the ten shown
+                    ["others"] = rows.Where(r => !chosen.Contains(r.Name)).Select(r => r.Name).Distinct().Count(),
                 });
             return new Dictionary<string, object>
             {
                 ["t"] = times.ToList(), ["series"] = series, ["on"] = SentisWatcherPlugin.Config?.LoadSampling == true,
+            };
+        }
+
+        /// <summary>
+        /// The long frames written down over the range (table spikes: the frames over 16.7 ms among the timed ones - every
+        /// frame while the detailed measurement runs), the longest first: when, how long, the collections in it, and its
+        /// heaviest parts ("kind:name=ms").
+        /// </summary>
+        public object Spikes(long from, long to, int top)
+        {
+            var rows = new List<Dictionary<string, object>>();
+            var total = 0;
+            foreach (var db in Days(from, to))
+                using (db)
+                {
+                    if (!HasTable(db, "spikes")) continue;
+                    using (var count = Command(db, "SELECT COUNT(*) FROM spikes WHERE t BETWEEN @a AND @b", ("@a", from), ("@b", to)))
+                        total += Convert.ToInt32(count.ExecuteScalar());
+                    using (var cmd = Command(db, "SELECT t, frame_ms, gc0, gc1, gc2, untimed_ms, top FROM spikes WHERE t BETWEEN @a AND @b ORDER BY frame_ms DESC LIMIT @n",
+                               ("@a", from), ("@b", to), ("@n", top)))
+                    using (var r = cmd.ExecuteReader())
+                        while (r.Read())
+                            rows.Add(new Dictionary<string, object>
+                            {
+                                ["t"] = r.GetInt64(0), ["ms"] = R(D(r, 1)), ["gc"] = new[] { (int)D(r, 2), (int)D(r, 3), (int)D(r, 4) }, ["untimed"] = R(D(r, 5)),
+                                ["parts"] = (r.IsDBNull(6) ? "" : r.GetString(6)).Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries).Select(part =>
+                                {
+                                    var eq = part.LastIndexOf('=');
+                                    var colon = part.IndexOf(':');
+                                    if (eq < 0 || colon < 0 || colon > eq) return null;
+                                    double.TryParse(part.Substring(eq + 1), NumberStyles.Float, CultureInfo.InvariantCulture, out var ms);
+                                    return new Dictionary<string, object> { ["kind"] = part.Substring(0, colon), ["name"] = part.Substring(colon + 1, eq - colon - 1), ["ms"] = ms };
+                                }).Where(p => p != null).ToList(),
+                            });
+                }
+            return new Dictionary<string, object>
+            {
+                ["total"] = total, ["rows"] = rows.OrderByDescending(x => (double)x["ms"]).Take(top).ToList(),
             };
         }
 

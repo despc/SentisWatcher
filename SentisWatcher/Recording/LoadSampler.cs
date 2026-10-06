@@ -41,6 +41,16 @@ namespace SentisWatcher.Recording
         /// <summary>One set of rows this often.</summary>
         public static readonly TimeSpan Every = TimeSpan.FromMinutes(1);
 
+        /// <summary>
+        /// And this often while every frame is timed (the detailed measurement): a point a second on the charts of the
+        /// grids, the block types, the components and the scripts (and of the frame itself, PerfSampler) - with a row a minute
+        /// the measurement asked for from the page showed nothing more than before it.
+        /// </summary>
+        public static readonly TimeSpan BurstEvery = TimeSpan.FromSeconds(1);
+
+        /// <summary>How often the rows are written now.</summary>
+        public static TimeSpan RowsEvery => _burstFrames > 0 ? BurstEvery : Every;
+
         /// <summary>Rows per kind at most a period; the rest are small.</summary>
         private const int TopPerKind = 60;
 
@@ -68,6 +78,9 @@ namespace SentisWatcher.Recording
 
         // game thread only
         private static bool _timing;
+
+        /// <summary>Whether this frame is one of the timed ones (game thread).</summary>
+        internal static bool Timing => _timing;
         private static int _countdown = MinGap;
         private static readonly Random Rng = new Random();
         private static long _nested;
@@ -86,11 +99,17 @@ namespace SentisWatcher.Recording
         /// </summary>
         public static void Burst(int seconds, double spikeMs = DefaultSpikeMs)
         {
-            _burstFrames = Math.Max(0, Math.Min(seconds, 600)) * 60;
+            _burstFrames = Math.Max(0, Math.Min(seconds, MaxBurstSeconds)) * 60;
             _spikeMs = _burstFrames > 0 ? Math.Max(1, spikeMs) : DefaultSpikeMs;
         }
 
         public static bool Bursting => _burstFrames > 0;
+
+        /// <summary>How long the every-frame timing still goes on, seconds (0: it is off).</summary>
+        public static int BurstSecondsLeft => (Math.Max(0, _burstFrames) + 59) / 60;
+
+        /// <summary>The longest it may be asked for at once, seconds.</summary>
+        public const int MaxBurstSeconds = 600;
 
         private static bool Enabled => SentisWatcherPlugin.Config?.LoadSampling == true && Recorder.Current != null;
 
@@ -303,6 +322,7 @@ namespace SentisWatcher.Recording
                 e.Touched = false;
             }
             Touched.Clear();
+            BlockTypeSampler.FrameEnd();
             if (_flushTo != null)
             {
                 var recorder = _flushTo;
@@ -355,7 +375,8 @@ namespace SentisWatcher.Recording
             return Stopwatch.GetTimestamp();
         }
 
-        private static void End(Entry e, long started, long nested)
+        /// <returns>What was charged: the call's own time, in ticks.</returns>
+        private static long End(Entry e, long started, long nested)
         {
             var elapsed = Stopwatch.GetTimestamp() - started;
             long alloc = 0;
@@ -366,8 +387,10 @@ namespace SentisWatcher.Recording
                 alloc = allocated - (_nestedAlloc - nestedAlloc);
                 _nestedAlloc = nestedAlloc + allocated;
             }
-            Charge(e, elapsed - (_nested - nested), alloc);
+            var own = elapsed - (_nested - nested);
+            Charge(e, own, alloc);
             _nested = nested + elapsed;
+            return own;
         }
 
         private static readonly Stack<(long Start, long Nested)> AllocStack = new Stack<(long, long)>();
@@ -394,7 +417,9 @@ namespace SentisWatcher.Recording
             }
             finally
             {
-                End(Of(entity), started, nested);
+                var own = End(Of(entity), started, nested);
+                // a block is an entity of its own in the game's update lists: its time is its grid's and its type's
+                if (entity is MyCubeBlock block) BlockTypeSampler.Charge(block, own);
             }
         }
 
@@ -497,6 +522,7 @@ namespace SentisWatcher.Recording
                 // the type too, apart: which kind of component it is that costs
                 Charge(Named(EntityComponent, component.GetType().Name), own);
                 End(component.ParentEntity is MyEntity entity ? Of(entity) : Named(Other, component.GetType().Name), started, nested);
+                if (component.ParentEntity is MyCubeBlock block) BlockTypeSampler.Charge(block, own);
             }
         }
 
@@ -911,12 +937,18 @@ namespace SentisWatcher.Recording
         /// <summary>Game thread, every frame: every <see cref="Every"/> the rows of the period that ended.</summary>
         public static void Tick(Recorder recorder)
         {
-            if (DateTime.UtcNow - _last < Every) return;
+            // the detailed measurement begins or ends: the period so far is written at once, so that a period is either
+            // of every frame or of the sampled ones, not of both
+            var bursting = _burstFrames > 0;
+            var turned = bursting != _wasBursting;
+            _wasBursting = bursting;
+            if (!turned && DateTime.UtcNow - _last < (bursting ? BurstEvery : Every)) return;
             if (_timing) _flushTo = recorder;               // the frame's entries are still open: at its end
             else Flush(recorder);
         }
 
         private static Recorder _flushTo;
+        private static bool _wasBursting;
 
         private static void Flush(Recorder recorder)
         {
@@ -946,11 +978,13 @@ namespace SentisWatcher.Recording
                     var ownerName = owner != 0 ? players?.TryGetIdentity(owner)?.DisplayName ?? "" : "";
                     recorder.Store.Add(new Row(Table.Load, t, t, e.Kind, e.Id, name ?? "", owner, ownerName, frames, Ms(e.Ticks) / frames, Ms(e.Max), e.Alloc / 1024.0 / frames));
                 }
+            BlockTypeSampler.Flush(recorder, t, frames, TopPerKind);
             Clear();
         }
 
         private static void Clear()
         {
+            BlockTypeSampler.Clear();
             _frames = 0;
             _frameTicks = _frameMax = 0;
             _frameAlloc = 0;

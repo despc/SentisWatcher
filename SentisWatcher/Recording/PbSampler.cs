@@ -72,7 +72,8 @@ namespace SentisWatcher.Recording
         public static void Tick(Recorder recorder)
         {
             _frames++;
-            if (DateTime.UtcNow - _last < Every) return;
+            // (every second while the detailed measurement runs, as the load's rows are)
+            if (DateTime.UtcNow - _last < (LoadSampler.Bursting ? LoadSampler.BurstEvery : Every)) return;
             _last = DateTime.UtcNow;
             List<Entry> done;
             lock (Lock)

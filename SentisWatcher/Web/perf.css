@@ -56,3 +56,9 @@ table.load td.bad { color: var(--bad); }
 .tip .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
 table.load a { color: var(--accent); text-decoration: none; }
 .rangebar[hidden] { display: none !important; }
+/* the detailed measurement's controls in the header */
+.burst { display: inline-flex; align-items: center; gap: 4px; }
+.burst .on { color: var(--accent); font-family: Consolas, monospace; white-space: nowrap; }
+.burst button#burstStop { border-color: var(--bad); color: var(--bad); }
+table.load td.parts { white-space: normal; color: var(--dim); }
+table.load td.parts b { color: var(--text); font-weight: normal; }
