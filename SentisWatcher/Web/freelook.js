@@ -1,8 +1,9 @@
 import { Vector3, Quaternion } from 'three';
 
 // The camera the way the game's first-person view works: the left mouse button held turns the view where
-// the camera stands (yaw and pitch about the camera's own axes), Q and E roll it. The wheel moves up to or back
-// from the point looked at, the right or middle button slides the camera across the view.
+// the camera stands (yaw and pitch about the camera's own axes), Q and E roll it. The wheel is the page's
+// (`onWheel`: the map sets the speed of its keys with it, as the game's spectator does); without a handler it
+// moves up to or back from the point looked at. The right or middle button slides the camera across the view.
 //
 // `target` is the point looked at, `dist` away straight ahead: the rest of the page moves it (following a
 // track, flying up to something) and the camera then turns to face it, keeping its roll.
@@ -14,6 +15,7 @@ export class FreeLookControls {
     this.lookSpeed = 0.0035;          // radians per pixel
     this.rollSpeed = 1.6;             // radians per second while Q or E is held
     this.zoomStep = 0.88;             // the distance per wheel notch
+    this.onWheel = null;              // (direction: 1 up, -1 down) => void; takes the wheel from the zoom
     this.minDistance = 2;
     this.maxDistance = 1.5e9;
     this._dist = 500;
@@ -86,6 +88,10 @@ export class FreeLookControls {
 
   _wheel(e) {
     e.preventDefault();
+    if (this.onWheel) {
+      if (e.deltaY) this.onWheel(e.deltaY < 0 ? 1 : -1);
+      return;
+    }
     this._syncTarget();
     const k = e.deltaY > 0 ? 1 / this.zoomStep : this.zoomStep;
     this._dist = Math.min(this.maxDistance, Math.max(this.minDistance, this._dist * k));

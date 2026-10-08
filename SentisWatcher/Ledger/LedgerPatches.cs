@@ -565,6 +565,7 @@ namespace SentisWatcher.Ledger
             try
             {
                 Dictionary<string, long> excess;
+                var books = "";
                 lock (Books)
                 {
                     var book = Books.GetOrCreateValue(block);
@@ -577,17 +578,24 @@ namespace SentisWatcher.Ledger
                         built[item] = was + component.Count * 1_000_000L;
                     }
                     excess = LedgerMath.Excess(book.Out.Where(p => p.Key != "Ore/Scrap").ToDictionary(p => p.Key, p => p.Value), built, book.Welded);
+                    // the block's whole book goes into the alert: one that came with "+1 steel plate" alone could not be
+                    // told from a block welded past the ledger
+                    if (excess.Count > 0)
+                        books = string.Join("; ", excess.Keys.Select(item => $"{item} out {Amount(book.Out, item)}, built of {Amount(built, item)}, welded in {Amount(book.Welded, item)}"));
                 }
                 if (excess.Count == 0) return;
                 var grid = block.CubeGrid;
                 Recorder.Current?.Alert("grind_excess", Identities.Owner(grid), grid?.EntityId ?? 0,
-                    $"{block.BlockDefinition.DisplayNameText} on {grid?.DisplayName} gave {LedgerMath.Describe(excess)} more than it is built of");
+                    $"{block.BlockDefinition.DisplayNameText} on {grid?.DisplayName} gave {LedgerMath.Describe(excess)} more than it is built of ({books}; {kind}, the block {block.BuildLevelRatio:0.##} built)");
             }
             catch (Exception e)
             {
                 Failed("grind check", e);
             }
         }
+
+        private static string Amount(Dictionary<string, long> of, string item) =>
+            (of.TryGetValue(item, out var raw) ? raw / 1e6 : 0).ToString("0.######", System.Globalization.CultureInfo.InvariantCulture);
 
         private static void Add(Dictionary<string, long> into, Dictionary<string, long> what)
         {

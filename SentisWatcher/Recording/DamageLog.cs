@@ -80,6 +80,13 @@ namespace SentisWatcher.Recording
             Add(Shot, attacker, KindOf(attacker, shooter), entity, name, 0, "", 0, "", 1, initialPosition);
         });
 
+        /// <summary>
+        /// Damage that is not recorded at all: the cold and the heat on an animal. Wolves and spiders freeze by the
+        /// hundred where no one is, and it says nothing about who fights whom - the most frequent rows of a day
+        /// ("Temperature by 0 to character", 214 of them on 08.10.2026).
+        /// </summary>
+        public static bool Skipped(string type, bool animalTarget) => animalTarget && type == "Temperature";
+
         /// <summary>A hit from the damage system (after it was applied): to a block or a character.</summary>
         public static void Damage(object target, MyDamageInformation info) => Recorder.Safe("damage log", () =>
         {

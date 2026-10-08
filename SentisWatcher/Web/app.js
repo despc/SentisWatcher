@@ -2076,8 +2076,10 @@ const MOVE_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyC'];
 const keysDown = new Set();
 const typing = (el) => !!el?.matches && (el.matches('textarea, select, input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=range])'));
 
-// The speed of the keys: a share of the distance to what is looked at, a second - on a log scale, from 1% to 3x.
-// Kept in this browser (a convenience: without storage it starts at the default).
+// The speed of the keys: a share of the distance to what is looked at, a second - on a log scale, from 0.1% to 10x.
+// The wheel over the map changes it, a notch up is a quarter faster (the game's spectator does the same; the wheel
+// used to move the camera up to the point looked at). Kept in this browser (a convenience: without storage it
+// starts at the default).
 const SPEED_KEY = 'watcher.moveSpeed';
 let moveSpeed = 0.2;
 function showMoveSpeed() {
@@ -2095,6 +2097,13 @@ $('#moveSpeed').addEventListener('input', () => {
   showMoveSpeed();
   try { localStorage.setItem(SPEED_KEY, String(moveSpeed)); } catch (e) { /* not kept */ }
 });
+controls.onWheel = (direction) => {
+  const slider = $('#moveSpeed');
+  const next = Math.min(Number(slider.max), Math.max(Number(slider.min), Number(slider.value) + direction * 0.1));
+  if (next === Number(slider.value)) return;
+  slider.value = String(next);
+  slider.dispatchEvent(new Event('input'));
+};
 window.addEventListener('keydown', (e) => {
   if (typing(e.target) || e.ctrlKey || e.altKey || e.metaKey) return;
   if (!MOVE_KEYS.includes(e.code)) return;

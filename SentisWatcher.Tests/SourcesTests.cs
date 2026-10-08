@@ -35,6 +35,23 @@ namespace SentisWatcher.Tests
         }
 
         [Fact]
+        public void An_algae_farm_is_a_farm()
+        {
+            // "unknown:MyItemProducerComponent.Produce gave ...: PhysicalObject/Algae +1 (Algae Farm ...)", 120 alerts in five days
+            Assert.Equal("farm", Sources.Known("MyItemProducerComponent", "Produce"));
+            Assert.Equal("farm", Sources.Known("MySolarFoodGenerator", "UpdateProduction"));
+            Assert.Equal(("MyItemProducerComponent", "Produce"), Sources.FromPatched("Patched_SpaceEngineers.Game.EntityComponents.Blocks.MyItemProducerComponentProduce_0"));
+        }
+
+        [Fact]
+        public void The_cold_on_an_animal_is_not_recorded()
+        {
+            Assert.True(SentisWatcher.Recording.DamageLog.Skipped("Temperature", animalTarget: true));
+            Assert.False(SentisWatcher.Recording.DamageLog.Skipped("Temperature", animalTarget: false));
+            Assert.False(SentisWatcher.Recording.DamageLog.Skipped("Bullet", animalTarget: true));
+        }
+
+        [Fact]
         public void An_animal_spawn_kit_is_npc()
         {
             Assert.Equal("npc", Sources.Known("MyAgentDefinition", "AddItems"));
