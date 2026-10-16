@@ -32,7 +32,7 @@ namespace SentisWatcher.Recording
     /// Time is "own": what a component or a plugin spent in the entities it updated is the entities'.
     /// </summary>
     [PatchShim]
-    public static class LoadSampler
+    public static partial class LoadSampler
     {
         private static readonly Logger Log = LogManager.GetCurrentClassLogger();
 
@@ -57,14 +57,7 @@ namespace SentisWatcher.Recording
         public const string Grid = "grid", Character = "character", Component = "component", Plugin = "plugin",
             System = "system", Other = "other", Parallel = "parallel", Total = "total";
 
-        /// <summary>
-        /// The physics step laid to the grids: Havok has no time of a grid or of a cluster (with its parallel
-        /// scheduling all the active clusters go through one queue of jobs), so the step's measured time is shared out
-        /// by the work there is to do - the active rigid bodies of a grid's mechanical group and the group's mechanical
-        /// connections (what Havok integrates, collides and solves; the way SentisOptimisations' physics guard counts),
-        /// out of all the active bodies of the world. A sleeping or a static grid costs nothing. The group goes by its
-        /// grid of the most blocks. An estimate of a share, not a measurement of the grid.
-        /// </summary>
+        /// <summary>The physics step laid to the grids (LoadSampler.Physics.cs).</summary>
         public const string GridPhysics = "grid_physics";
 
         private sealed class Entry
@@ -722,58 +715,6 @@ namespace SentisWatcher.Recording
                 }
             }
             _physicsStart = 0;
-        }
-
-        private static readonly Dictionary<long, Entry> PhysicsByGrid = new Dictionary<long, Entry>();
-        private static readonly Dictionary<long, long> PhysicsGroupOf = new Dictionary<long, long>();
-        private static readonly Dictionary<long, int> PhysicsCost = new Dictionary<long, int>();
-
-        /// <summary>The step's time to the grids by their share of the active bodies and mechanical connections (see <see cref="GridPhysics"/>).</summary>
-        private static void SharePhysics(long stepTicks)
-        {
-            PhysicsGroupOf.Clear();
-            PhysicsCost.Clear();
-            var total = 0;
-            foreach (var cluster in Sandbox.Engine.Physics.MyPhysics.Clusters.GetList())
-            {
-                if (!(cluster is Havok.HkWorld world)) continue;
-                foreach (var body in world.ActiveRigidBodies)
-                {
-                    total++;
-                    if (!(body.UserObject is Sandbox.Engine.Physics.MyPhysicsBody physics) || !(physics.Entity is MyCubeGrid grid)) continue;
-                    if (grid.MarkedForClose || grid.IsStatic || grid.Physics?.RigidBody == null || grid.Physics.RigidBody.GetMotionType() == Havok.HkMotionType.Fixed) continue;
-                    if (!PhysicsGroupOf.TryGetValue(grid.EntityId, out var key))
-                    {
-                        var nodes = MyCubeGridGroups.Static.GetGroups(VRage.Game.ModAPI.GridLinkTypeEnum.Mechanical).GetGroupNodes(grid);
-                        MyCubeGrid biggest = grid;
-                        if (nodes != null)
-                            foreach (var node in nodes)
-                                if (node.BlocksCount > biggest.BlocksCount) biggest = node;
-                        key = biggest.EntityId;
-                        var first = !PhysicsCost.ContainsKey(key);
-                        if (nodes != null)
-                            foreach (var node in nodes) PhysicsGroupOf[node.EntityId] = key;
-                        PhysicsGroupOf[grid.EntityId] = key;
-                        if (first)
-                        {
-                            // every rotor, piston or wheel of the group is a constraint the solver carries
-                            var links = nodes != null ? Math.Max(0, nodes.Count - 1) : 0;
-                            PhysicsCost[key] = links;
-                            total += links;
-                        }
-                    }
-                    PhysicsCost[key] = PhysicsCost[key] + 1;
-                }
-            }
-            if (total <= 0) return;
-            foreach (var pair in PhysicsCost)
-            {
-                if (pair.Value <= 0) continue;
-                if (!PhysicsByGrid.TryGetValue(pair.Key, out var e)) PhysicsByGrid[pair.Key] = e = new Entry { Kind = GridPhysics, Id = pair.Key };
-                var share = stepTicks * pair.Value / total;
-                e.Ticks += share;
-                if (share > e.Max) e.Max = share;
-            }
         }
 
         private static long _gameLogicStart, _gameLogicNested;

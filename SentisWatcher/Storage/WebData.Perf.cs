@@ -101,7 +101,7 @@ namespace SentisWatcher.Storage
 
         /// <summary>
         /// The grids over time, the <paramref name="top"/> heaviest: by "physics" - each one's share of the physics step
-        /// (LoadSampler.GridPhysics, an estimate), by anything else - its logic: the updates of its blocks on the game
+        /// (LoadSampler.GridPhysics, by SentisOptimisations' PhysicsCost), by anything else - its logic: the updates of its blocks on the game
         /// thread and the ones the game runs in parallel (while the game thread waits). By the grid's name.
         /// </summary>
         public object GridSeries(long from, long to, string what, int top)
