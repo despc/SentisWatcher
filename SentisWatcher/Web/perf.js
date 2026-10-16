@@ -7,6 +7,28 @@ const MIN = 60_000, HOUR = 3600_000;
 const COLORS = ['#5fb3f9', '#f5b041', '#58d68d', '#ec7063', '#af7ac5', '#48c9b0', '#f4d03f', '#eb984e', '#85c1e9', '#f1948a',
   '#a3e4d7', '#d7bde2', '#f9e79f', '#aed6f1', '#fad7a0'];
 
+// a line keeps its colour while the page is open: by its name, not by its place in the list - the list is sorted by
+// the load, and a grid that moved up took the colour of the one before it. A name seen again keeps its colour unless
+// another line on the chart has it now; a new name takes a colour no line of the chart has had, then one free now
+const lineColours = {};
+function coloursOf(chartKey, names) {
+  const seen = lineColours[chartKey] || (lineColours[chartKey] = new Map());
+  const used = new Set(), out = new Map();
+  for (const keep of [true, false])
+    for (const n of names) {
+      if (out.has(n) || seen.has(n) !== keep) continue;
+      let c = seen.get(n);
+      if (!c || used.has(c)) {
+        const had = new Set(seen.values());
+        c = COLORS.find((x) => !used.has(x) && !had.has(x)) || COLORS.find((x) => !used.has(x)) || COLORS[out.size % COLORS.length];
+        seen.set(n, c);
+      }
+      used.add(c);
+      out.set(n, c);
+    }
+  return out;
+}
+
 const state = { from: 0, to: 0, span: HOUR, points: [], hidden: {}, live: true };
 
 function status(text, error = false) {
@@ -407,8 +429,9 @@ function drawSessionComponents() {
   const heavy = names.sort((a, b) => totals[b] - totals[a]).slice(0, 10);
   const chosen = [...new Set([...heavy, ...names.filter((n) => worst[n] >= 2)])];
   const rest = names.filter((n) => !chosen.includes(n));
-  const series = chosen.map((n, i) => ({
-    key: 'sc:' + n, name: componentName(n), color: COLORS[i % COLORS.length], unit: 'мс',
+  const colours = coloursOf('sc', chosen);
+  const series = chosen.map((n) => ({
+    key: 'sc:' + n, name: componentName(n), color: colours.get(n), unit: 'мс',
     values: pts.map((p) => p.components ? (p.components[n] ? p.components[n][0] : 0) : null),
     maxes: pts.map((p) => p.components ? (p.components[n] ? p.components[n][1] : 0) : null),
   }));
@@ -478,8 +501,9 @@ function drawSeries(kind, canvas, legendEl, nameOf, noteEl) {
   const othersKey = kind + ':';
   if (['blockTypes', 'gridLogic', 'gridPhysics'].includes(kind) && state.hidden[othersKey] === undefined) state.hidden[othersKey] = true;
   const pts = d.t.map((t) => ({ t }));
-  const series = d.series.map((s, i) => ({
-    key: kind + ':' + s.name, name: nameOf(s.name, s), color: s.name ? COLORS[i % COLORS.length] : '#bdc3c7', unit: 'мс',
+  const colours = coloursOf(kind, d.series.filter((s) => s.name).map((s) => s.name));
+  const series = d.series.map((s) => ({
+    key: kind + ':' + s.name, name: nameOf(s.name, s), color: s.name ? colours.get(s.name) : '#bdc3c7', unit: 'мс',
     values: s.ms, maxes: s.max,
   }));
   // (the rows come once a minute, once a second in a detailed measurement: three minutes without one is a gap)
