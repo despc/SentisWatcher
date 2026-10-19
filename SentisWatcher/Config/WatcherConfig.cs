@@ -74,6 +74,31 @@ namespace SentisWatcher.Config
             set => SetValue(ref _webLan, value);
         }
 
+        private int _publicPort;
+        private string _publicOrigin = "*";
+
+        /// <summary>The public stats for the server's site (PublicServer): 0 is off.</summary>
+        [DisplayTab(Name = "Public stats port", GroupName = "Public stats", Tab = "Web view", Order = 10,
+            Description = "A port for the server's public site to read who is online (/online) and the load of the simulation " +
+                          "thread and the simulation speed (/perf?hours=3, up to 24) as JSON. Only names, faction tags and the " +
+                          "charts go out - no positions, grids or inventories. Listens on every address of the machine once the " +
+                          "address is reserved (netsh http add urlacl url=http://+:<port>/, the log says the command), else on " +
+                          "127.0.0.1. 0 is off. Takes effect at the next server start.")]
+        public int PublicPort
+        {
+            get => _publicPort;
+            set => SetValue(ref _publicPort, value);
+        }
+
+        [DisplayTab(Name = "Public stats site", GroupName = "Public stats", Tab = "Web view", Order = 11,
+            Description = "The site allowed to read the public stats from a browser (CORS), e.g. https://example.org; * is any. " +
+                          "Takes effect at the next server start.")]
+        public string PublicOrigin
+        {
+            get => _publicOrigin;
+            set => SetValue(ref _publicOrigin, value);
+        }
+
         private bool _loadSampling = true;
 
         /// <summary>Who loads the game thread: grids, characters, session components, plugins (LoadSampler).</summary>

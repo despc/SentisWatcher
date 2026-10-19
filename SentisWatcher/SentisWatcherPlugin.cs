@@ -36,6 +36,9 @@ namespace SentisWatcher
         public InventorySweep Sweep { get; private set; }
         private EventHooks _hooks;
         public WebServer Web { get; private set; }
+
+        /// <summary>The public stats for the server's site, when a port is set for them.</summary>
+        public PublicServer Public { get; private set; }
         private ConfigGUI _control;
         private string _configPath;
 
@@ -99,6 +102,18 @@ namespace SentisWatcher
                     Web = null;
                 }
             }
+            if (Config.PublicPort > 0)
+            {
+                try
+                {
+                    Public = PublicServer.StartFor(Store, Config.PublicPort, Config.PublicOrigin);
+                }
+                catch (Exception e)
+                {
+                    Log.Error(e, "SentisWatcher: the public stats could not start on port " + Config.PublicPort);
+                    Public = null;
+                }
+            }
             Log.Info("SentisWatcher: recording into " + folder + ", keeping " + Config.RetentionDays + " days");
         }
 
@@ -110,6 +125,8 @@ namespace SentisWatcher
             PerfSampler.Stop();
             Web?.Dispose();
             Web = null;
+            Public?.Dispose();
+            Public = null;
             try
             {
                 Sweep?.FlushPending();
