@@ -62,6 +62,30 @@ namespace SentisWatcher.Recording
         private List<(long, int)> _prune;
         private int _pruneCursor;
 
+        /// <summary>
+        /// What an owner held, as the visits last saw it, in the given inventories and in all of theirs whose entity
+        /// is gone and not pruned yet (game thread): what a grid closed and made again comes back with.
+        /// </summary>
+        public Dictionary<string, long> HeldBefore(long owner, IEnumerable<(long, int)> inventories)
+        {
+            var held = new Dictionary<string, long>();
+            void Add(Seen seen)
+            {
+                if (seen?.Items == null) return;
+                foreach (var pair in seen.Items)
+                {
+                    held.TryGetValue(pair.Key, out var was);
+                    held[pair.Key] = was + pair.Value;
+                }
+            }
+            var counted = new HashSet<(long, int)>();
+            foreach (var key in inventories)
+                if (counted.Add(key) && _seen.TryGetValue(key, out var seen)) Add(seen);
+            foreach (var pair in _seen)
+                if (pair.Value.Owner == owner && !counted.Contains(pair.Key) && !MyEntities.EntityExists(pair.Key.Item1)) Add(pair.Value);
+            return held;
+        }
+
         public InventorySweep(Recorder recorder)
         {
             _recorder = recorder;
@@ -112,6 +136,9 @@ namespace SentisWatcher.Recording
                         var block = blocks[_blockCursor++];
                         if (block != null && !block.MarkedForClose && (block.HasInventory || block is MyGasTank))
                             Visit(block, block.CubeGrid.EntityId, Identities.InventoryOwner(block), now);
+                        // a pilot is no top entity of the world: its pockets are seen through its seat
+                        if (block is MyShipController seat && seat.Pilot is MyCharacter pilot && !pilot.MarkedForClose && pilot.HasInventory)
+                            Visit(pilot, 0, Identities.InventoryOwner(pilot), now);
                         continue;
                     }
                     _blocks = null;
@@ -331,7 +358,9 @@ namespace SentisWatcher.Recording
             foreach (var pair in unexplained) flows.Add("unexplained", pair.Key, pair.Value);
             var gained = unexplained.Where(p => p.Value > LedgerMath.Tolerance(p.Value)).ToList();
             var lost = unexplained.Where(p => -p.Value > LedgerMath.Tolerance(p.Value)).ToList();
-            if (gained.Count > 0)
+            // an NPC's own pockets (the crews of the trade ships carry credits the game puts there itself): booked
+            // as unexplained, not flagged - a player gets nothing out of them past the hooks
+            if (gained.Count > 0 && !(owner is MyCharacter && ownerIdentity != 0 && !Identities.IsPlayer(ownerIdentity)))
                 _recorder.Alert("bypass", ownerIdentity, owner.EntityId,
                     $"{Describe(owner)} changed past the ledger: {LedgerMath.Describe(gained)}");
             // the other way: gone with no hook seeing it go (taken past the ledger, or lost to a bug)

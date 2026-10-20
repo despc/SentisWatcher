@@ -570,18 +570,29 @@ namespace SentisWatcher.Ledger
                 {
                     var book = Books.GetOrCreateValue(block);
                     Add(book.Out, context.Added);
+                    // a component comes out as its block's DeconstructId, one for one (the prototech ones as
+                    // Ingot/PrototechScrap): built of and welded in are counted as what they come out as
                     var built = new Dictionary<string, long>();
+                    var turnsInto = new Dictionary<string, string>();
                     foreach (var component in block.BlockDefinition.Components)
                     {
-                        var item = ItemKeys.Of(component.Definition.Id);
+                        var item = ItemKeys.Of((component.DeconstructItem ?? component.Definition).Id);
+                        turnsInto[ItemKeys.Of(component.Definition.Id)] = item;
                         built.TryGetValue(item, out var was);
                         built[item] = was + component.Count * 1_000_000L;
                     }
-                    excess = LedgerMath.Excess(book.Out.Where(p => p.Key != "Ore/Scrap").ToDictionary(p => p.Key, p => p.Value), built, book.Welded);
+                    var welded = new Dictionary<string, long>();
+                    foreach (var pair in book.Welded)
+                    {
+                        var item = turnsInto.TryGetValue(pair.Key, out var into) ? into : pair.Key;
+                        welded.TryGetValue(item, out var was);
+                        welded[item] = was + pair.Value;
+                    }
+                    excess = LedgerMath.Excess(book.Out.Where(p => p.Key != "Ore/Scrap").ToDictionary(p => p.Key, p => p.Value), built, welded);
                     // the block's whole book goes into the alert: one that came with "+1 steel plate" alone could not be
                     // told from a block welded past the ledger
                     if (excess.Count > 0)
-                        books = string.Join("; ", excess.Keys.Select(item => $"{item} out {Amount(book.Out, item)}, built of {Amount(built, item)}, welded in {Amount(book.Welded, item)}"));
+                        books = string.Join("; ", excess.Keys.Select(item => $"{item} out {Amount(book.Out, item)}, built of {Amount(built, item)}, welded in {Amount(welded, item)}"));
                 }
                 if (excess.Count == 0) return;
                 var grid = block.CubeGrid;

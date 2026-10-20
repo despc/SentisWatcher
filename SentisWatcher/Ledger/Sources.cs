@@ -90,7 +90,9 @@ namespace SentisWatcher.Ledger
                 // a block that makes items out of light and water: the algae farm (MySolarFoodGenerator calls
                 // MyItemProducerComponent.Produce, into its own inventory or down the conveyors)
                 case "MyItemProducerComponent":
-                case "MySolarFoodGenerator": return "farm";
+                case "MySolarFoodGenerator":
+                // a farm plot's harvest, straight into the hands of the player who picks it
+                case "MyFarmPlotLogic": return "farm";
                 case "MyEntityInventorySpawnComponent": return "bag";
                 case "MySpaceRespawnComponent":
                 case "MyRespawnComponentBase":
@@ -121,7 +123,7 @@ namespace SentisWatcher.Ledger
             "MyContractObtainAndDeliver", "MyVisualScriptLogicProvider", "MyCampaignSessionComponent",
             "MySessionComponentScriptSharedStorage", "MyStationResourcesGenerator", "MyAgentDefinition", "MyHumanoidBotDefinition",
             "MyBotDefinition", "MySessionComponentEconomy", "MyStation", "MyGlobalEncountersGenerator", "MyEncounterGenerator",
-            "MyNeutralShipSpawner", "MyPirateAntennas", "MyReactor", "MyItemProducerComponent", "MySolarFoodGenerator", "MyEntityInventorySpawnComponent", "MySpaceRespawnComponent",
+            "MyNeutralShipSpawner", "MyPirateAntennas", "MyReactor", "MyItemProducerComponent", "MySolarFoodGenerator", "MyFarmPlotLogic", "MyEntityInventorySpawnComponent", "MySpaceRespawnComponent",
             "MyRespawnComponentBase", "MyRespawnComponent", "MyMedicalRoom", "MySurvivalKit", "MyTradingManager", "MyPrefabManager",
             "MyFloatingObjects", "MyFloatingObject", "MyProjectorBase", "MyCubeBuilder", "MyCharacter", "MyCubeGrid",
         }.OrderByDescending(t => t.Length).ToArray();

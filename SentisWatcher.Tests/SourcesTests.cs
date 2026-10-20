@@ -40,6 +40,7 @@ namespace SentisWatcher.Tests
             // "unknown:MyItemProducerComponent.Produce gave ...: PhysicalObject/Algae +1 (Algae Farm ...)", 120 alerts in five days
             Assert.Equal("farm", Sources.Known("MyItemProducerComponent", "Produce"));
             Assert.Equal("farm", Sources.Known("MySolarFoodGenerator", "UpdateProduction"));
+            Assert.Equal("farm", Sources.Known("MyFarmPlotLogic", "HarvestIntoPlayersInventory_Server"));
             Assert.Equal(("MyItemProducerComponent", "Produce"), Sources.FromPatched("Patched_SpaceEngineers.Game.EntityComponents.Blocks.MyItemProducerComponentProduce_0"));
         }
 

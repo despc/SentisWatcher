@@ -36,6 +36,7 @@ namespace SentisWatcher.Ledger
         {
             public readonly FlowSet Items = new FlowSet();
             public readonly HashSet<long> Entities = new HashSet<long>();
+            public readonly HashSet<(long, int)> Inventories = new HashSet<(long, int)>();
             public long FirstEntity;
             public string Where;
         }
@@ -138,8 +139,17 @@ namespace SentisWatcher.Ledger
                 }
                 suspect.Items.Add(kind, item, raw);
                 suspect.Entities.Add(entity.EntityId);
+                suspect.Inventories.Add((entity.EntityId, IndexOf(entity, inventory)));
             }
         }
+
+        /// <summary>
+        /// What an owner held before, in the given inventories (entity, index) and in its inventories whose entity
+        /// is gone (the sweep, game thread). A ship fixer (ALE ShipFixer on the server) closes a grid and makes it
+        /// again from its builders on worker threads, no plugin on the stack: the blocks come back under new ids, a
+        /// pilot left in a cockpit's builder under its own, their inventories loaded from what they held.
+        /// </summary>
+        public Func<long, IEnumerable<(long, int)>, Dictionary<string, long>> HeldBefore;
 
         /// <summary>One alert for each owner and source since the last call (game thread, every frame).</summary>
         public void FlushSuspects(Recorder recorder)
@@ -154,12 +164,21 @@ namespace SentisWatcher.Ledger
             foreach (var pair in done)
             {
                 var (alert, owner, source) = pair.Key;
+                if (source.StartsWith("load:") && Remade(owner, pair.Value)) continue;
                 var items = LedgerMath.Describe(pair.Value.Items.NetByItem().Where(p => p.Value != 0));
                 var more = pair.Value.Entities.Count > 1 ? " and " + (pair.Value.Entities.Count - 1) + " more inventories" : "";
                 recorder.Alert(alert, owner, pair.Value.FirstEntity,
                     $"{source} gave {Identities.NameOf(owner)}: {items} ({pair.Value.Where}{more})",
                     limitBy: ((long)alert.GetHashCode() << 32) ^ owner ^ source.GetHashCode());
             }
+        }
+
+        /// <summary>Loaded no more than the owner held before: a grid (or a character) made again, nothing new.</summary>
+        private bool Remade(long owner, Suspect suspect)
+        {
+            if (HeldBefore == null) return false;
+            var held = HeldBefore(owner, suspect.Inventories);
+            return suspect.Items.NetByItem().All(p => p.Value <= (held.TryGetValue(p.Key, out var had) ? had : 0) + LedgerMath.Tolerance(p.Value));
         }
 
         public static string Describe(MyEntity entity) =>
