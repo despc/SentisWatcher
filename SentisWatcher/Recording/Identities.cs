@@ -49,9 +49,15 @@ namespace SentisWatcher.Recording
             }
         }
 
-        /// <summary>Whether the identity is a player's, not nobody's and not an NPC's.</summary>
+        /// <summary>
+        /// Whether the identity is a player's, not nobody's and not an NPC's. A player has a Steam id behind the identity
+        /// (online or not); the crews the game makes for the NPC factions' ships and stations (a new identity, joined
+        /// to SCBT, GCIN, SPRT, UNSL...) have none, and the game does not count them as NPCs (IdentityIsNpc) - the
+        /// credits and medkits it puts in their pockets were flagged as changes past the ledger (prod, 23.10.2026).
+        /// </summary>
         public static bool IsPlayer(long identityId) =>
-            identityId != 0 && MySession.Static?.Players != null && !MySession.Static.Players.IdentityIsNpc(identityId);
+            identityId != 0 && MySession.Static?.Players != null && !MySession.Static.Players.IdentityIsNpc(identityId) &&
+            MySession.Static.Players.TryGetSteamId(identityId) != 0;
 
         /// <summary>The first big owner of a grid, 0 when nobody owns it.</summary>
         public static long Owner(MyCubeGrid grid) => grid?.BigOwners != null && grid.BigOwners.Count > 0 ? grid.BigOwners[0] : 0;
