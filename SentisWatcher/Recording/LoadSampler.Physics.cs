@@ -32,6 +32,7 @@ namespace SentisWatcher.Recording
                 return;
             }
             _physicsShare = (Func<double, Dictionary<long, double>, int>)Delegate.CreateDelegate(typeof(Func<double, Dictionary<long, double>, int>), share);
+            FindClusterParts();
         }
 
         /// <summary>A frame's step (ticks) to the grids.</summary>
@@ -39,6 +40,7 @@ namespace SentisWatcher.Recording
         {
             if (!_physicsShareLooked) FindPhysicsShare();
             if (_physicsShare == null || _physicsShare(stepTicks, PhysicsShares) == 0) return;
+            ShareClusters();
             foreach (var pair in PhysicsShares)
             {
                 var share = (long)pair.Value;

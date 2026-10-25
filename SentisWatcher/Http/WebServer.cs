@@ -254,6 +254,7 @@ namespace SentisWatcher.Web
                 case "load": return _data.Load(from, to, (int)Math.Min(L("top", 100), 1000));
                 case "loadseries": return _data.LoadSeries(from, to, q["kind"], (int)Math.Min(L("top", 8), 60));
                 case "gridseries": return _data.GridSeries(from, to, q["what"], (int)Math.Min(L("top", 10), 60));
+                case "clusters": return _data.ClusterSeries(from, to, (int)Math.Min(L("top", 10), 30));
                 case "holdings": return _data.Holdings(q["kind"], L("id"), L("t", now));
                 case "relief": return Http.Relief.Of(L("id"), q["name"]);
                 case "terrain": return Http.Relief.Patch(L("id"), q["name"], D("x"), D("y"), D("z"), D("size"), (int)L("n", 129));

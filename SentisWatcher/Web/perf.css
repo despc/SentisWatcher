@@ -62,3 +62,14 @@ table.load a { color: var(--accent); text-decoration: none; }
 .burst button#burstStop { border-color: var(--bad); color: var(--bad); }
 table.load td.parts { white-space: normal; color: var(--dim); }
 table.load td.parts b { color: var(--text); font-weight: normal; }
+/* the clusters of the physics: small charts, five a row */
+.cluster-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 1400px) { .cluster-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 800px) { .cluster-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.cluster-cell[hidden] { display: none; }
+.cluster-cell { min-width: 0; border: 1px solid var(--line); border-radius: 4px; padding: 4px; }
+.cluster-cell.detached { border-color: #3fb6c9; }
+.cluster-cell canvas { width: 100%; height: 130px; display: block; }
+.cluster-title { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
+.cluster-title .dim { font-size: 11px; }
+#clustersPanel[hidden] { display: none; }

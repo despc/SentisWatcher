@@ -512,7 +512,54 @@ function drawSeries(kind, canvas, legendEl, nameOf, noteEl) {
   legend(legendEl, series, (s) => ' ' + num(avg(s.values), 3) + ', худший кадр ' + num(max(s.maxes), 1) +
     (counts[s.key] != null ? ', ' + num(counts[s.key], counts[s.key] < 10 ? 1 : 0) + ' за кадр' : ''));
 }
+// ------------------------------------------------------------------ the clusters of the physics (/api/clusters, SentisClusters)
+
+let clusterData = null;
+const CL_PHYSICS = '#4aa3df', CL_LOGIC = '#e3a33b';
+// the clusters' charts, shown while SentisClusters runs the clusters' updates: the ten heaviest of the range
+function drawClusters() {
+  const panel = $('#clustersPanel');
+  const d = clusterData;
+  if (!d || !d.running) { panel.hidden = true; return; }
+  panel.hidden = false;
+  if (panel.classList.contains('folded')) return;
+  const clusters = d.clusters || [];
+  $('#nClusters').textContent = clusters.length ? '' : 'За этот интервал замеров по кластерам нет (пишутся с версии от 25.10.2026, когда SentisClusters обновляет кластеры в своих потоках).';
+  const pts = (d.t || []).map((t) => ({ t }));
+  for (let i = 0; i < 10; i++) {
+    const cell = $('#clCell' + i), canvas = $('#cCluster' + i), title = $('#clTitle' + i);
+    const c = clusters[i];
+    cell.hidden = !c;
+    if (!c) continue;
+    const [x, y, z, objects, players, sim] = (c.info || '').split(';');
+    const detachedNow = c.detached.length && c.detached[c.detached.length - 1];
+    const ever = c.detached.some((v) => v);
+    cell.classList.toggle('detached', !!ever);
+    title.innerHTML = (detachedNow ? '⛓ ' : '') + '<b>#' + c.id + '</b> ' + esc(c.name || '') +
+      ` <span class="dim">· ${x || '?'} ${y || '?'} ${z || '?'} км · ${objects || 0} объектов · ${players || 0} игроков · sim ${sim || '?'}</span>`;
+    title.title = title.textContent;
+    const series = [
+      { key: 'cl:' + c.id + ':p', name: 'физика', color: CL_PHYSICS, unit: 'мс', values: c.physics },
+      { key: 'cl:' + c.id + ':l', name: 'логика', color: CL_LOGIC, unit: 'мс', values: c.logic },
+    ];
+    const top = Math.max(0.5, d.detachMs || 0, ...c.physics.map((v) => v || 0), ...c.logic.map((v) => v || 0));
+    chart(canvas, series, { points: pts, gap: 180_000, leftMax: niceMax(top * 1.15), refs: d.detachMs > 0 ? [{ y: d.detachMs, color: '#3fb6c9' }] : [] });
+    // the time it was detached, under a light veil
+    if (ever && canvas._chart) {
+      const g = canvas.getContext('2d');
+      const { x: px } = canvas._chart;
+      g.fillStyle = 'rgba(63, 182, 201, 0.13)';
+      for (let k = 0; k < pts.length; k++) {
+        if (!c.detached[k]) continue;
+        const x0 = px(k), x1 = k + 1 < pts.length ? px(k + 1) : x0 + 2;
+        g.fillRect(x0, 10, Math.max(1, x1 - x0), canvas.clientHeight - 32);
+      }
+    }
+  }
+}
+
 function drawSeriesCharts() {
+  drawClusters();
   drawSeries('component', $('#cComponents'), $('#lComponents'), componentName, $('#nComponents'));
   drawSeries('plugin', $('#cPlugins'), $('#lPlugins'), (n) => n || 'остальные', $('#nPlugins'));
   drawSeries('pb', $('#cPb'), $('#lPb'), (n, s) => n ? esc(n) + (s.owner ? ` <span class="dim">— ${esc(s.owner)}</span>` : ' <span class="dim">— без владельца</span>') : 'остальные', $('#nPb'));
@@ -648,6 +695,8 @@ async function load() {
   ]);
   if (stale()) return;
   [seriesData.component, seriesData.plugin, seriesData.pb, seriesData.gridPhysics, seriesData.gridLogic, seriesData.blockTypes] = series;
+  clusterData = await api('clusters', { from, to, top: 10 }).catch(() => null);
+  if (stale()) return;
   drawSeriesCharts();
   status(state.points.length ? `${state.points.length} точек, ${fmt(state.from)} — ${fmt(state.to)}` : 'Нет записей за интервал');
 }

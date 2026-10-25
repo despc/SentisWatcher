@@ -920,6 +920,8 @@ namespace SentisWatcher.Recording
                     recorder.Store.Add(new Row(Table.Load, t, t, e.Kind, e.Id, name ?? "", owner, ownerName, frames, Ms(e.Ticks) / frames, Ms(e.Max), e.Alloc / 1024.0 / frames));
                 }
             BlockTypeSampler.Flush(recorder, t, frames, TopPerKind);
+            try { FlushClusters(recorder, t, frames); }
+            catch (Exception e) { Log.Warn(e, "LoadSampler: the clusters' rows"); }
             Clear();
         }
 
@@ -932,6 +934,7 @@ namespace SentisWatcher.Recording
             ByEntity.Clear();
             ByName.Clear();
             PhysicsByGrid.Clear();
+            PhysicsByCluster.Clear();
         }
     }
 }

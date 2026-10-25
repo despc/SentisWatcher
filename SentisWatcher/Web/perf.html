@@ -37,6 +37,23 @@
       <div class="dim" style="margin-bottom:6px">Щелчок по заголовку сворачивает и разворачивает график. На любом графике: Ctrl+колесо (или Shift+колесо) — приблизить и отдалить вокруг курсора, протяжка — выделить период,
         зажатое колесо — сдвинуть интервал, ↩ — вернуться.</div>
 
+      <div class="panel" id="clustersPanel" hidden>
+        <h3 title="Кластеры физики, которые SentisClusters обновляет в своих потоках: 10 самых нагруженных за интервал. Физика — доля шага физики кластера (по счёту SentisOptimisations, тот же, что у «Гриды: физика»), логика — обновления сущностей кластера. У отцеплённого кластера (⛓, фон подсвечен) обе — из его собственного тика, который идёт в своём потоке со своей скоростью; пунктир — порог отцепления.">Кластеры, топ-10 <span class="dim">— мс в кадре: <span style="color:#4aa3df">физика</span>, <span style="color:#e3a33b">логика</span>; ⛓ — отцеплён</span></h3>
+        <div id="nClusters" class="dim"></div>
+        <div class="cluster-grid">
+          <div class="cluster-cell" id="clCell0" hidden><div class="cluster-title" id="clTitle0"></div><canvas id="cCluster0"></canvas></div>
+          <div class="cluster-cell" id="clCell1" hidden><div class="cluster-title" id="clTitle1"></div><canvas id="cCluster1"></canvas></div>
+          <div class="cluster-cell" id="clCell2" hidden><div class="cluster-title" id="clTitle2"></div><canvas id="cCluster2"></canvas></div>
+          <div class="cluster-cell" id="clCell3" hidden><div class="cluster-title" id="clTitle3"></div><canvas id="cCluster3"></canvas></div>
+          <div class="cluster-cell" id="clCell4" hidden><div class="cluster-title" id="clTitle4"></div><canvas id="cCluster4"></canvas></div>
+          <div class="cluster-cell" id="clCell5" hidden><div class="cluster-title" id="clTitle5"></div><canvas id="cCluster5"></canvas></div>
+          <div class="cluster-cell" id="clCell6" hidden><div class="cluster-title" id="clTitle6"></div><canvas id="cCluster6"></canvas></div>
+          <div class="cluster-cell" id="clCell7" hidden><div class="cluster-title" id="clTitle7"></div><canvas id="cCluster7"></canvas></div>
+          <div class="cluster-cell" id="clCell8" hidden><div class="cluster-title" id="clTitle8"></div><canvas id="cCluster8"></canvas></div>
+          <div class="cluster-cell" id="clCell9" hidden><div class="cluster-title" id="clTitle9"></div><canvas id="cCluster9"></canvas></div>
+        </div>
+      </div>
+
       <div class="panel">
         <h3>Кадр игрового потока <span class="dim">— мс, в среднем за точку; тонкие линии — худший кадр; пунктир — 16,7 мс (60 кадров в секунду)</span></h3>
         <canvas id="cFrame"></canvas>

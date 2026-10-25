@@ -113,6 +113,66 @@ namespace SentisWatcher.Storage
                     (k, name) => k == Recording.LoadSampler.Grid ? name : name.StartsWith(parallelGrid) ? name.Substring(parallelGrid.Length) : null);
         }
 
+        /// <summary>
+        /// The clusters of the physics over time (SentisClusters): the <paramref name="top"/> heaviest over the range by
+        /// physics and logic together, each one's physics and logic in an average frame at every row, whether it was
+        /// detached then, its biggest grid and the last of its centre, objects, players and speed. Whether SentisClusters
+        /// runs the clusters now, and its detaching threshold (ms, 0 when it does not detach).
+        /// </summary>
+        public object ClusterSeries(long from, long to, int top)
+        {
+            var running = Recording.LoadSampler.ClustersRunning(out var detachMs);
+            var times = new SortedSet<long>();
+            var rows = new List<(long T, string Kind, long Id, string Name, bool Detached, string Info, double Ms)>();
+            foreach (var db in Days(from, to))
+                using (db)
+                {
+                    using (var check = new SQLiteCommand("SELECT 1 FROM sqlite_master WHERE type='table' AND name='load'", db))
+                        if (check.ExecuteScalar() == null) continue;
+                    using (var cmd = new SQLiteCommand("SELECT t, kind, entity, name, owner, owner_name, ms FROM load WHERE t BETWEEN @a AND @b AND (kind=@p OR kind=@l)", db))
+                    {
+                        cmd.Parameters.AddWithValue("@a", from);
+                        cmd.Parameters.AddWithValue("@b", to);
+                        cmd.Parameters.AddWithValue("@p", Recording.LoadSampler.ClusterPhysics);
+                        cmd.Parameters.AddWithValue("@l", Recording.LoadSampler.ClusterLogic);
+                        using (var r = cmd.ExecuteReader())
+                            while (r.Read())
+                            {
+                                var t = r.GetInt64(0);
+                                times.Add(t);
+                                rows.Add((t, r.GetString(1), r.IsDBNull(2) ? 0 : r.GetInt64(2), r.IsDBNull(3) ? "" : r.GetString(3),
+                                    !r.IsDBNull(4) && r.GetInt64(4) == 1, r.IsDBNull(5) ? "" : r.GetString(5), r.IsDBNull(6) ? 0 : r.GetDouble(6)));
+                            }
+                    }
+                }
+            var t2i = times.Select((t, i) => (t, i)).ToDictionary(p => p.t, p => p.i);
+            var heaviest = rows.GroupBy(r => r.Id).OrderByDescending(g => g.Sum(r => r.Ms)).Take(Math.Max(1, top)).Select(g => g.Key).ToList();
+            var clusters = new List<object>();
+            foreach (var id in heaviest)
+            {
+                var physics = new double?[times.Count];
+                var logic = new double?[times.Count];
+                var detached = new bool[times.Count];
+                string name = "", info = "";
+                long lastT = long.MinValue;
+                foreach (var r in rows.Where(r => r.Id == id))
+                {
+                    var i = t2i[r.T];
+                    if (r.Kind == Recording.LoadSampler.ClusterPhysics) physics[i] = R(r.Ms);
+                    else logic[i] = R(r.Ms);
+                    if (r.Detached) detached[i] = true;
+                    if (r.T >= lastT)
+                    {
+                        lastT = r.T;
+                        if (r.Name.Length > 0) name = r.Name;
+                        info = r.Info;
+                    }
+                }
+                clusters.Add(new Dictionary<string, object> { ["id"] = id, ["name"] = name, ["info"] = info, ["physics"] = physics, ["logic"] = logic, ["detached"] = detached });
+            }
+            return new Dictionary<string, object> { ["running"] = running, ["detachMs"] = R(detachMs), ["t"] = times.ToList(), ["clusters"] = clusters };
+        }
+
         /// <summary>Rows of the kinds over time by name (<paramref name="nameOf"/> gives the name a row goes by, null to leave it out).</summary>
         private object Series(long from, long to, int top, bool own, string[] kinds, Func<string, string, string> nameOf)
         {
