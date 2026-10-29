@@ -137,6 +137,11 @@ namespace SentisWatcher.Tests
             Assert.NotNull(Invariants.BadAmount("Ore", -1));
             Assert.Null(Invariants.BadAmount("Ore", 1_500_000));
             Assert.NotNull(Invariants.BadAmount("Component", 1_500_000));
+            // the game's float rounding is not a fraction; a ten-thousandth more is
+            Assert.Null(Invariants.BadAmount("Component", 2_540_999_936));
+            Assert.Null(Invariants.BadAmount("Component", 18_000_064));
+            Assert.NotNull(Invariants.BadAmount("Component", 18_000_500));
+            Assert.NotNull(Invariants.BadAmount("Component", 999_000));
             // a third of a piece of meat in a world with an assembler efficiency of 3 is the game's own
             Assert.True(Invariants.FractionByRecipe(3f, ingredientOfAScaledRecipe: true));
             Assert.False(Invariants.FractionByRecipe(1f, ingredientOfAScaledRecipe: true));

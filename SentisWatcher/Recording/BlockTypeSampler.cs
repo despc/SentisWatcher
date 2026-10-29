@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -119,10 +120,15 @@ namespace SentisWatcher.Recording
             }
         }
 
-        /// <summary>One scheduled update of a grid, as its loop calls it (see the class). Game thread or, for a parallel one, a worker.</summary>
+        /// <summary>
+        /// One scheduled update of a grid, as its loop calls it (see the class). Game thread or, for a parallel one, a
+        /// worker; with SentisClusters a grid's own updates run on the clusters' threads too: those are not timed, the
+        /// dictionaries of the types are the game thread's (written from several threads at once one went round in
+        /// FindEntry for ever - the stand frozen, 25.10.2026).
+        /// </summary>
         public static void RunBlockUpdate(MyCubeGrid grid, Action callback, bool parallel)
         {
-            if (parallel || !LoadSampler.Timing)
+            if (parallel || !LoadSampler.Timing || Thread.CurrentThread != Sandbox.MySandboxGame.Static?.UpdateThread)
             {
                 callback();
                 return;

@@ -29,12 +29,28 @@ namespace SentisWatcher.Anomalies
             return sourceAfter + targetAfter > sourceBefore + targetBefore;
         }
 
+        /// <summary>
+        /// A whole item's amount this near a whole number (raw millionths) is the game's rounding, not a fraction: the game
+        /// counts amounts through floats here and there, and a float keeps 24 bits - 2541 pieces became 2540.999936
+        /// (float 2541e6 is 2540999936), 18 of MetalGrid 18.000064 in a player's cryo chamber (prod, 29.10.2026). A ten
+        /// thousandth of a piece, or two steps of a float of the amount for big stacks; nothing to build or sell with.
+        /// </summary>
+        public const long RoundingRaw = 100;
+
         /// <summary>What is wrong with a stack's amount, or null (raw amounts are millionths).</summary>
         public static string BadAmount(string type, long raw)
         {
             if (raw < 0) return "negative amount";
-            if (WholeTypes.Contains(type) && raw % 1_000_000 != 0) return "a fraction of a " + type;
+            if (WholeTypes.Contains(type) && !NearWhole(raw)) return "a fraction of a " + type;
             return null;
+        }
+
+        /// <summary>Whether a raw amount is a whole number of pieces, give or take the game's rounding (<see cref="RoundingRaw"/>).</summary>
+        public static bool NearWhole(long raw)
+        {
+            var off = raw % 1_000_000;
+            off = Math.Min(off, 1_000_000 - off);
+            return off <= Math.Max(RoundingRaw, (long)(raw * 2.4e-7));
         }
 
         /// <summary>

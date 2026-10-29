@@ -359,8 +359,10 @@ namespace SentisWatcher.Recording
             var gained = unexplained.Where(p => p.Value > LedgerMath.Tolerance(p.Value)).ToList();
             var lost = unexplained.Where(p => -p.Value > LedgerMath.Tolerance(p.Value)).ToList();
             // an NPC's own pockets (the crews of the trade ships carry credits the game puts there itself): booked
-            // as unexplained, not flagged - a player gets nothing out of them past the hooks
-            if (gained.Count > 0 && !(owner is MyCharacter && ownerIdentity != 0 && !Identities.IsPlayer(ownerIdentity)))
+            // as unexplained, not flagged - a player gets nothing out of them past the hooks. A body with no identity
+            // at all too: the crews of the encounters' ships come so, "Astronaut" with a medkit and 160-380 credits,
+            // three or four at once (prod, 29.10.2026) - a player's body always has the player's identity
+            if (gained.Count > 0 && !(owner is MyCharacter && !Identities.IsPlayer(ownerIdentity)))
                 _recorder.Alert("bypass", ownerIdentity, owner.EntityId,
                     $"{Describe(owner)} changed past the ledger: {LedgerMath.Describe(gained)}");
             // the other way: gone with no hook seeing it go (taken past the ledger, or lost to a bug)
