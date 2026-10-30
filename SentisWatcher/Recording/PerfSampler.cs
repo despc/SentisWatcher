@@ -142,7 +142,7 @@ namespace SentisWatcher.Recording
                     if (target == null) { Log.Warn("SentisWatcher: no " + type + "." + method + " to time; it stays in the rest of the frame"); return; }
                     Around(target, prefix, suffix);
                 }
-                foreach (var logic in new[] { "VRage.Game.Components.MyGameLogic", "Sandbox.Game.Entities.MyGameLogic" })
+                foreach (var logic in new[] { "VRage.Game.Entity.MyGameLogic", "VRage.Game.Components.MyGameLogic", "Sandbox.Game.Entities.MyGameLogic" })
                     if (T(logic) != null)
                     {
                         Optional(logic, "UpdateBeforeSimulation", nameof(GameLogicStart), nameof(GameLogicEnd), Type.EmptyTypes);

@@ -176,7 +176,9 @@ namespace SentisWatcher.Recording
                 var consume = creation?.GetMethod("ConsumeResult", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
                 if (consume != null) Around(c, consume, nameof(CreateStart), nameof(CreateEnd));
                 // the entities' game logic components (mods' scripts among them), updated after the entities
-                var gameLogic = typeof(MyEntity).Assembly.GetType("VRage.Game.Components.MyGameLogic")
+                // (VRage.Game.Entity in the game now; the other two are where it was before - it was not found and not timed)
+                var gameLogic = typeof(MyEntity).Assembly.GetType("VRage.Game.Entity.MyGameLogic")
+                                ?? typeof(MyEntity).Assembly.GetType("VRage.Game.Components.MyGameLogic")
                                 ?? typeof(MyEntities).Assembly.GetType("Sandbox.Game.Entities.MyGameLogic");
                 foreach (var name in new[] { "UpdateBeforeSimulation", "UpdateAfterSimulation" })
                 {
