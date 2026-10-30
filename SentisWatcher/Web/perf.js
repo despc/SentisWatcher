@@ -531,12 +531,12 @@ function drawClusters() {
     const c = clusters[i];
     cell.hidden = !c;
     if (!c) continue;
-    const [x, y, z, objects, players, sim] = (c.info || '').split(';');
+    const [, , , objects, players, sim, size] = (c.info || '').split(';');
     const detachedNow = c.detached.length && c.detached[c.detached.length - 1];
     const ever = c.detached.some((v) => v);
     cell.classList.toggle('detached', !!ever);
     title.innerHTML = (detachedNow ? '⛓ ' : '') + '<b>#' + c.id + '</b> ' + esc(c.name || '') +
-      ` <span class="dim">· ${x || '?'} ${y || '?'} ${z || '?'} км · ${objects || 0} объектов · ${players || 0} игроков · sim ${sim || '?'}</span>`;
+      ` <span class="dim">· ${size ? size + ' км · ' : ''}${objects || 0} объектов · ${players || 0} игроков · sim ${sim || '?'}</span>`;
     title.title = title.textContent;
     const series = [
       { key: 'cl:' + c.id + ':p', name: 'физика', color: CL_PHYSICS, unit: 'мс', values: c.physics },

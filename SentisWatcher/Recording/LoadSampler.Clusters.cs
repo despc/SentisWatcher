@@ -158,8 +158,12 @@ namespace SentisWatcher.Recording
                 var centre = min != null && max != null && min.Length == 3 && max.Length == 3
                     ? string.Format(CultureInfo.InvariantCulture, "{0:F1};{1:F1};{2:F1}", (min[0] + max[0]) / 2000, (min[1] + max[1]) / 2000, (min[2] + max[2]) / 2000)
                     : ";;";
+                // its size last (the page shows it, not the centre; the rows written before have none)
+                var size = min != null && max != null && min.Length == 3 && max.Length == 3
+                    ? (Math.Max(max[0] - min[0], Math.Max(max[1] - min[1], max[2] - min[2])) / 1000).ToString("F0", CultureInfo.InvariantCulture)
+                    : "";
                 var info = centre + ";" + r.Objects?.GetValue(row) + ";" + r.Players?.GetValue(row) + ";" +
-                           Convert.ToDouble(r.SimSpeed?.GetValue(row) ?? 0.0, CultureInfo.InvariantCulture).ToString("F2", CultureInfo.InvariantCulture);
+                           Convert.ToDouble(r.SimSpeed?.GetValue(row) ?? 0.0, CultureInfo.InvariantCulture).ToString("F2", CultureInfo.InvariantCulture) + ";" + size;
                 list.Add((id, physics, logic, detached, info));
             }
             if (list.Count == 0) return;
@@ -174,7 +178,7 @@ namespace SentisWatcher.Recording
             }
         }
 
-        /// <summary>The name of each cluster's grid of the most blocks (by its world of Havok).</summary>
+        /// <summary>The name of each cluster's grid of the most blocks (by its world of Havok), its owner's in brackets.</summary>
         private static Dictionary<int, string> BiggestGrids(HashSet<int> wanted)
         {
             var names = new Dictionary<int, string>();
@@ -192,7 +196,12 @@ namespace SentisWatcher.Recording
                 if (world == null || !byWorld.TryGetValue(world, out var id)) continue;
                 if (!best.TryGetValue(id, out var was) || grid.BlocksCount > was.BlocksCount) best[id] = grid;
             }
-            foreach (var pair in best) names[pair.Key] = pair.Value.DisplayName;
+            foreach (var pair in best)
+            {
+                var grid = pair.Value;
+                var owner = grid.BigOwners.Count > 0 ? Sandbox.Game.World.MySession.Static.Players.TryGetIdentity(grid.BigOwners[0])?.DisplayName : null;
+                names[pair.Key] = grid.DisplayName + (string.IsNullOrEmpty(owner) ? "" : " (" + owner + ")");
+            }
             return names;
         }
     }
