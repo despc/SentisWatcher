@@ -142,6 +142,10 @@ namespace SentisWatcher.Tests
             Assert.Null(Invariants.BadAmount("Component", 18_000_064));
             Assert.NotNull(Invariants.BadAmount("Component", 18_000_500));
             Assert.NotNull(Invariants.BadAmount("Component", 999_000));
+            // fractional hand tools are live noise, not an alert; negative amounts still are
+            Assert.Null(Invariants.BadAmount("PhysicalGunObject", 8_833_333));
+            Assert.Null(Invariants.BadAmount("PhysicalGunObject", 1_166_667));
+            Assert.NotNull(Invariants.BadAmount("PhysicalGunObject", -1));
             // a third of a piece of meat in a world with an assembler efficiency of 3 is the game's own
             Assert.True(Invariants.FractionByRecipe(3f, ingredientOfAScaledRecipe: true));
             Assert.False(Invariants.FractionByRecipe(1f, ingredientOfAScaledRecipe: true));

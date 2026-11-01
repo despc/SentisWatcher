@@ -15,9 +15,14 @@ namespace SentisWatcher.Anomalies
         /// <summary>Types that only come in whole pieces.</summary>
         public static readonly HashSet<string> WholeTypes = new HashSet<string>
         {
-            "Component", "AmmoMagazine", "PhysicalGunObject", "OxygenContainerObject", "GasContainerObject",
+            "Component", "AmmoMagazine", "OxygenContainerObject", "GasContainerObject",
             "Datapad", "ConsumableItem", "Package", "PhysicalObject",
         };
+
+        // PhysicalGunObject is deliberately not whole-checked: live stacks of hand drills with exact thirds
+        // (8.833333, 1.166667) kept alerting without any actionable cause. A fraction of a tool has no use as
+        // a tool, and item creation is still caught by the transfer-conservation checks, so a fractional gun
+        // stack is noise here rather than evidence. Negative amounts of gun objects remain invalid.
 
         /// <summary>
         /// A transfer may move items, never make them: what the two inventories hold of the item together
