@@ -7,7 +7,7 @@ namespace SentisWatcher.Storage
     /// </summary>
     public static class Schema
     {
-        public const int Version = 3;
+        public const int Version = 4;
 
         public const string Create = @"
 PRAGMA journal_mode=WAL;
@@ -93,6 +93,12 @@ CREATE TABLE IF NOT EXISTS damage(
   id INTEGER PRIMARY KEY, t INTEGER NOT NULL, kind TEXT NOT NULL, attacker INTEGER, attacker_kind TEXT, attacker_entity INTEGER,
   weapon TEXT, target INTEGER, target_kind TEXT, victim INTEGER, relation TEXT, amount REAL, count INTEGER, x REAL, y REAL, z REAL);
 CREATE INDEX IF NOT EXISTS damage_by_t ON damage(t);
+
+CREATE TABLE IF NOT EXISTS hydrogen(
+  id INTEGER PRIMARY KEY, t INTEGER NOT NULL, grid INTEGER NOT NULL, name TEXT NOT NULL,
+  stored REAL, capacity REAL, buffer REAL, produced REAL, consumed REAL, tank_in REAL, tank_out REAL,
+  frozen INTEGER, blocks TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS hydrogen_by_grid ON hydrogen(grid,t);
 ";
 
         /// <summary>Changes to the files of older versions, each run only where it is missing.</summary>

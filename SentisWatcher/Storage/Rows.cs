@@ -17,6 +17,7 @@ namespace SentisWatcher.Storage
         Load,
         Spikes,
         Damage,
+        Hydrogen,
     }
 
     /// <summary>
@@ -60,6 +61,7 @@ namespace SentisWatcher.Storage
                 case Table.Load: return new[] { "t", "kind", "entity", "name", "owner", "owner_name", "frames", "ms", "max_ms", "alloc_kb", "count" };
                 case Table.Spikes: return new[] { "t", "frame_ms", "gc0", "gc1", "gc2", "untimed_ms", "top" };
                 case Table.Damage: return new[] { "t", "kind", "attacker", "attacker_kind", "attacker_entity", "weapon", "target", "target_kind", "victim", "relation", "amount", "count", "x", "y", "z" };
+                case Table.Hydrogen: return new[] { "t", "grid", "name", "stored", "capacity", "buffer", "produced", "consumed", "tank_in", "tank_out", "frozen", "blocks" };
                 default: throw new ArgumentOutOfRangeException(nameof(table));
             }
         }
@@ -80,6 +82,7 @@ namespace SentisWatcher.Storage
                 case Table.Load: return "load";
                 case Table.Spikes: return "spikes";
                 case Table.Damage: return "damage";
+                case Table.Hydrogen: return "hydrogen";
                 default: throw new ArgumentOutOfRangeException(nameof(table));
             }
         }

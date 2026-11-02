@@ -259,6 +259,7 @@ namespace SentisWatcher.Web
                 case "relief": return Http.Relief.Of(L("id"), q["name"]);
                 case "terrain": return Http.Relief.Patch(L("id"), q["name"], D("x"), D("y"), D("z"), D("size"), (int)L("n", 129));
                 case "online": return Http.Live.Online();
+                case "hydrogen": return _data.Hydrogen(q["ids"] ?? q["id"], from, to);
                 case "structures": return Http.Live.Structures();
                 case "structure": return Http.Live.Structure(L("id"));
                 case "now": return new { now, offsetMinutes = Clock.OffsetMinutes(now), zone = Clock.Zone(now) };

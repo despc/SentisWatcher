@@ -254,6 +254,7 @@ namespace SentisWatcher.Http
                             ["available"] = distributor?.MaxAvailableResourceByType(electricity, main) ?? 0f,
                             ["required"] = distributor?.TotalRequiredInputByType(electricity, main) ?? 0f,
                             ["state"] = distributor?.ResourceStateByType(electricity, false, main).ToString(),
+                            ["hydrogen"] = group.Sum(g => Recording.HydrogenSampler.Latest(g.EntityId)?.TryGetValue("stored", out var h) == true ? (double)h : 0),
                         });
                     }
                     yield return new Answer { Value = result };
@@ -492,6 +493,7 @@ namespace SentisWatcher.Http
                     ["id"] = g.EntityId.ToString(), ["name"] = g.DisplayName ?? "", ["blocks"] = g.BlocksCount, ["pcu"] = g.BlocksPCU,
                     ["large"] = g.GridSizeEnum == VRage.Game.MyCubeSize.Large, ["static"] = g.IsStatic,
                     ["mass"] = g.Physics?.Mass ?? 0f,
+                    ["hydrogen"] = Recording.HydrogenSampler.Latest(g.EntityId),
                 }).ToList(),
                 ["blocks"] = blocks.OrderByDescending(p => p.Value).ThenBy(p => p.Key)
                     .Select(p => new Dictionary<string, object> { ["name"] = p.Key, ["count"] = p.Value }).ToList(),

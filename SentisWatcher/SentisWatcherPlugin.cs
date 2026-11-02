@@ -143,6 +143,7 @@ namespace SentisWatcher
             Store?.Dispose();
             Store = null;
             Sampler = null;
+            HydrogenSampler.Clear();
             Sweep = null;
             Log.Info("SentisWatcher: stopped");
         }

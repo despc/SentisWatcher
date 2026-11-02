@@ -24,6 +24,7 @@ namespace SentisWatcher.Recording
         public const double GridBudgetMs = 0.2;
 
         private readonly Recorder _recorder;
+        private readonly HydrogenSampler _hydrogen;
         private readonly Dictionary<long, PlayerState> _players = new Dictionary<long, PlayerState>();
         private readonly Dictionary<long, GridState> _grids = new Dictionary<long, GridState>();
         private readonly Dictionary<long, long> _characters = new Dictionary<long, long>();
@@ -36,6 +37,7 @@ namespace SentisWatcher.Recording
         public Sampler(Recorder recorder)
         {
             _recorder = recorder;
+            _hydrogen = new HydrogenSampler(recorder.Store);
         }
 
         /// <summary>Game thread, every frame.</summary>
@@ -52,6 +54,7 @@ namespace SentisWatcher.Recording
             }
             if (++_frame % PlayerEveryFrames == 0) SamplePlayers();
             SampleGrids();
+            _hydrogen.Tick();
         }
 
         private void SamplePlayers()

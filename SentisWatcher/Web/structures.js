@@ -2,8 +2,10 @@
 // the game on request: /api/structures (every structure, briefly) and /api/structure (one in full: its blocks by
 // type and its electricity - what makes it, what takes it, which blocks go without).
 
+import './hydrogen.js';
 const $ = (s) => document.querySelector(s);
-const state = { list: [], sort: 'blocks', desc: true, selected: null, detail: null };
+const state = { list: [], sort: 'blocks', desc: true, selected: null, detail: null, hydrogen: null, h2hours: 1, h2error: '' };
+let detailRequest = 0;
 
 function status(text, error = false) {
   const s = $('#status');
@@ -103,6 +105,7 @@ const COLUMNS = [
   ['grids', 'Гридов', true],
   ['blocks', 'Блоков', true],
   ['pcu', 'PCU', true],
+  ['hydrogen', 'H₂ в баках, л', true],
   ['required', 'Нужно', true],
   ['available', 'Доступно', true],
   ['state', 'Энергия', false],
@@ -129,9 +132,10 @@ function drawList() {
       <td class="name">${esc(s.name)} <span class="dim">${s.static ? 'станция' : s.large ? 'большой' : 'малый'}</span></td>
       <td>${s.faction ? '<span class="dim">[' + esc(s.faction) + ']</span> ' : ''}${esc(s.owner || '—')}</td>
       <td class="n">${s.grids}</td><td class="n">${int(s.blocks)}</td><td class="n">${int(s.pcu)}</td>
+      <td class="n">${s.hydrogen == null ? '—' : int(s.hydrogen)}</td>
       <td class="n">${power(s.required)}</td><td class="n">${power(s.available)}</td>
       <td>${stateChip(s.state)}</td></tr>`).join('') +
-    (rows.length > shown.length ? `<tr><td colspan="8" class="dim">показаны первые ${shown.length}: уточните отбор</td></tr>` : '');
+    (rows.length > shown.length ? `<tr><td colspan="9" class="dim">показаны первые ${shown.length}: уточните отбор</td></tr>` : '');
 }
 
 $('#structures').addEventListener('click', (e) => {
@@ -180,6 +184,7 @@ function drawDetail() {
       гридов ${d.grids.length}, блоков ${int(blocks)}, PCU ${int(d.grids.reduce((n, g) => n + g.pcu, 0))} ·
       <a href="${mapLink}" title="${d.x.toFixed(0)}, ${d.y.toFixed(0)}, ${d.z.toFixed(0)}">на карте</a></div>
 
+    ${WatcherHydrogen.render(state.hydrogen, state.h2hours, state.h2error)}
     <h3>Энергобаланс ${stateChip(p.state)}</h3>
     <div class="verdict ${verdict[0]}">${verdict[1]}</div>
     ${autonomy(p)}
@@ -217,9 +222,9 @@ function drawDetail() {
 
     <div class="cols">
       <div><h3>Гриды</h3>
-        ${table([['Грид'], ['Вид'], ['Блоков', 1], ['PCU', 1], ['Масса, т', 1]],
+        ${table([['Грид'], ['Вид'], ['Блоков', 1], ['PCU', 1], ['Масса, т', 1], ['H₂ в баках, л', 1]],
           d.grids.map((g) => `<tr><td class="name">${esc(g.name)}</td><td>${g.static ? 'станция' : g.large ? 'большой' : 'малый'}</td>
-            <td class="n">${int(g.blocks)}</td><td class="n">${int(g.pcu)}</td><td class="n">${g.mass > 0 ? (g.mass / 1000).toLocaleString('ru-RU', { maximumFractionDigits: 1 }) : '—'}</td></tr>`), '')}
+            <td class="n">${int(g.blocks)}</td><td class="n">${int(g.pcu)}</td><td class="n">${g.mass > 0 ? (g.mass / 1000).toLocaleString('ru-RU', { maximumFractionDigits: 1 }) : '—'}</td><td class="n">${g.hydrogen ? int(g.hydrogen.stored) : '—'}</td></tr>`), '')}
       </div>
       <div><h3>Блоки <span class="dim">— ${d.blocks.length} видов</span></h3>
         ${table([['Блок'], ['Штук', 1], ['Доля', 1]],
@@ -237,12 +242,27 @@ async function select(id) {
 
 async function loadDetail() {
   if (!state.selected) return;
+  const request = ++detailRequest;
+  const selected = state.selected;
   try {
-    state.detail = await api('structure', { id: state.selected });
+    const detail = await api('structure', { id: selected });
+    if (request !== detailRequest || selected !== state.selected) return;
+    state.detail = detail;
+    if (!detail) throw new Error('Грид удалён');
+    state.h2error = '';
+    try {
+      const hydrogen = await api('hydrogen', { ids: detail.grids.map(g => g.id).join(','), from: Date.now() - state.h2hours * 3600000, to: Date.now() });
+      if (request !== detailRequest || selected !== state.selected) return;
+      state.hydrogen = hydrogen;
+    } catch (e) {
+      if (request !== detailRequest || selected !== state.selected) return;
+      state.hydrogen = null; state.h2error = 'История водорода: ' + e.message;
+    }
     // the same structure under its largest grid's id, if that changed
     if (state.detail.id !== state.selected) { state.selected = state.detail.id; drawList(); }
     drawDetail();
   } catch (e) {
+    if (request !== detailRequest || selected !== state.selected) return;
     $('#detail').innerHTML = `<div class="dim hint">Структуры больше нет в мире или игра не ответила: ${esc(e.message)}</div>`;
   }
 }
@@ -297,6 +317,7 @@ $('#q').addEventListener('input', drawList);
 $('#onlyBad').addEventListener('change', drawList);
 $('#owner').addEventListener('change', drawList);
 $('#reload').addEventListener('click', load);
+$('#detail').addEventListener('change', e => { if (e.target.id === 'h2range') { state.h2hours = Number(e.target.value); loadDetail(); } });
 setInterval(() => { if ($('#live').checked && !document.hidden) load(); }, 10_000);
 if (/^#\d+$/.test(location.hash)) state.selected = location.hash.slice(1);
 load();
