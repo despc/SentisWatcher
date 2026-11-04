@@ -6,7 +6,9 @@
   const rate = n => num(n) + ' л/с';
   const time = t => new Date(t).toLocaleString('ru-RU');
   const roles = {tank:'Бак',engine:'Водородный двигатель',generator:'Выработка',consumer:'Потребитель',thrusters:'Движители'};
-  function chart(points, lines, from, to, unit) {
+  // hold: {active, frozen} heartbeats in ms when rows are written on a change only - a value holds until the next
+  // row (drawn as a step), and only a silence longer than the heartbeat is a recording outage
+  function chart(points, lines, from, to, unit, hold) {
     if (!points.length) return '<div class="dim">Нет записей</div>';
     from = from ?? points[0].t; to = Math.max(from + 1, to ?? points[points.length-1].t);
     let max = 1;
@@ -16,17 +18,25 @@
     const y = v => 132 - 112 * (Number(v)||0) / max;
     let paths = '';
     for (const [key,label,color] of lines) {
-      let part = [], previous = null;
+      let part = [], previous = null, held = null;
       const flush = () => { if (part.length) paths += `<polyline fill="none" stroke="${color}" stroke-width="1.8" points="${part.join(' ')}"/>`; part=[]; };
       // A long scan can take >10 s. Do not draw invented continuity through a recording outage.
       const deltas = points.slice(1).map((p,i)=>p.t-points[i].t).filter(d=>d>0).sort((a,b)=>a-b);
       const interval = deltas.length ? deltas[Math.floor((deltas.length-1)/2)] : 10000;
+      const gapAfter = q => hold ? Math.max(30000, ((q?.frozen ? hold.frozen : hold.active) || 0) * 1.5) : Math.max(30000, interval*3);
       for (const p of points) {
-        if (previous != null && p.t-previous > Math.max(30000, interval*3)) flush();
+        if (previous != null && p.t-previous > gapAfter(held)) flush();
         const px=x(p).toFixed(2), py=y(p[key]).toFixed(2);
+        if (hold && part.length) part.push(`${px},${y(held[key]).toFixed(2)}`);
         part.push(`${px},${py}`);
+        held = p;
         paths += `<circle cx="${px}" cy="${py}" r="2.6" fill="${color}"><title>${esc(time(p.t)+' · '+label+': '+num(p[key])+' '+unit+(p.frozen?' · заморожен':''))}</title></circle>`;
         previous=p.t;
+      }
+      // the last value holds on to the range's end (no later row: nothing changed), not past a heartbeat
+      if (hold && held && part.length) {
+        const end = Math.min(to, held.t + gapAfter(held));
+        if (end > held.t) part.push(`${x({t:end}).toFixed(2)},${y(held[key]).toFixed(2)}`);
       }
       flush();
     }
@@ -40,14 +50,15 @@
     if (error) return controls + `<div class="state bad">${esc(error)}</div>`;
     if (!data?.series?.length) return controls + '<div class="dim">Нет записей водорода за выбранный период.</div>';
     return controls + data.series.map(s => {
+      const hold=data.heartbeatMs?{active:data.heartbeatMs,frozen:data.frozenHeartbeatMs}:null;
       const p=s.points[s.points.length-1];
       const previous=s.points.length>1?s.points[s.points.length-2]:null;
       const delta=previous ? p.stored+p.buffer-previous.stored-previous.buffer : null;
       return `<section class="h2-grid"><h4>${esc(s.name)} ${p.frozen?'<span class="state none">заморожен</span>':''}</h4>
         <div class="h2-stats"><span>Баки <b>${liters(p.stored)}</b> / ${liters(p.capacity)}</span><span>Двигатели <b>${liters(p.buffer)}</b></span><span class="h2-produced">Выработка <b>${rate(p.produced)}</b></span><span class="h2-consumed">Расход <b>${rate(p.consumed)}</b></span></div>
         <div class="dim">${esc(time(p.t))}${delta!==null?' · Δ запас '+(delta>0?'+':'')+liters(delta)+' за '+num((p.t-previous.t)/1000)+' с':''}</div>
-        ${chart(s.points, [['stored','В баках','#6ab5ff'],['buffer','В двигателях','#bd9bff']],data.from,data.to,'л')}
-        ${chart(s.points, [['produced','Выработка','#59d99b'],['consumed','Сжигание / потребление','#ff8c82'],['tankIn','Вход в баки','#6ab5ff'],['tankOut','Выход из баков','#e7bd63']],data.from,data.to,'л/с')}
+        ${chart(s.points, [['stored','В баках','#6ab5ff'],['buffer','В двигателях','#bd9bff']],data.from,data.to,'л',hold)}
+        ${chart(s.points, [['produced','Выработка','#59d99b'],['consumed','Сжигание / потребление','#ff8c82'],['tankIn','Вход в баки','#6ab5ff'],['tankOut','Выход из баков','#e7bd63']],data.from,data.to,'л/с',hold)}
         <div class="h2-blocks"><table class="load"><tr><th>Блок</th><th>Роль</th><th class="n">Запас, л</th><th class="n">Выработка, л/с</th><th class="n">Расход, л/с</th><th class="n">Вход, л/с</th><th class="n">Выход, л/с</th></tr>
         ${(s.latest||[]).map(b=>`<tr><td class="name" title="${esc(b.id)}">${esc(b.name)}</td><td>${esc(roles[b.role]||b.role)}</td><td class="n">${num(b.stored+b.buffer)}</td><td class="n">${num(b.produced)}</td><td class="n" title="${b.role==='engine'?'По текущей электрической мощности двигателя':''}">${num(b.consumed)}</td><td class="n">${num(b.input)}</td><td class="n">${num(b.output)}</td></tr>`).join('')}</table></div></section>`;
     }).join('') + '<div class="dim h2-note">л/с симуляции — мгновенные показания, не накопленные счётчики. Вход/выход баков — перекачка, не сжигание. Скачок запаса сам по себе не определяет причину списания. Движители сгруппированы по общему газовому входу.</div>';

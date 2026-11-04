@@ -23,3 +23,12 @@ test('history charts preserve real time spacing and break missing-data gaps', ()
   assert.match(html, /<title>/);
   assert.ok(!html.includes('NaN'));
 });
+test('a history written on a change holds each value as a step up to the heartbeat', () => {
+  const hold = {active:600000, frozen:3600000};
+  const html = ctx.WatcherHydrogen.chart([{t:0,v:1},{t:500000,v:2},{t:3000000,v:3,frozen:true},{t:6000000,v:3,frozen:true}], [['v','Stock','#fff']], 0, 7000000, 'л', hold);
+  assert.equal((html.match(/<polyline/g)||[]).length, 2);
+  const first = html.match(/<polyline[^>]*points="([^"]*)"/)[1].split(' ');
+  assert.equal(first.length, 3);
+  assert.equal(first[1].split(',')[1], first[0].split(',')[1]);
+  assert.ok(!html.includes('NaN'));
+});

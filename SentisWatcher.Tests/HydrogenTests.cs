@@ -3,6 +3,7 @@ using System.Collections.Specialized;
 using System.IO;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json;
+using SentisWatcher.Recording;
 using SentisWatcher.Storage;
 using SentisWatcher.Web;
 using Xunit;
@@ -106,6 +107,72 @@ namespace SentisWatcher.Tests
                     Assert.Empty((JArray)data["series"]);
                     Assert.Throws<ArgumentException>(() => new WebData(store).Hydrogen("123", t + 1, t));
                     Assert.Throws<ArgumentException>(() => new WebData(store).Hydrogen("123", t, t + 8 * 86400000L));
+                }
+            }
+            finally { try { Directory.Delete(folder, true); } catch { } }
+        }
+
+        [Fact]
+        public void Samples_are_written_on_a_change_and_a_heartbeat_only()
+        {
+            var t = Clock.ToMs(new DateTime(2026, 11, 3, 12, 0, 0, DateTimeKind.Utc));
+            HydrogenTotals Totals(bool frozen, double stored, double consumed)
+            {
+                var totals = new HydrogenTotals(frozen);
+                totals.Add("tank", stored, 2000d, 0d, 0d, 0d, 0d, 0d);
+                totals.Add("consumer", 0d, 0d, 0d, 0d, consumed, consumed, 0d);
+                return totals;
+            }
+            HydrogenSampler.Written Step(HydrogenSampler.Written last, long now, HydrogenTotals totals, bool frozen, string blocks, out bool withBlocks) =>
+                HydrogenSampler.Decide(last, now, "Ship", totals, frozen, "1/tank/Tank;", blocks, out withBlocks);
+
+            var first = Step(null, t, Totals(false, 1000, 5), false, "[a]", out var with);
+            Assert.NotNull(first); Assert.True(with);
+            Assert.Null(Step(first, t + 10000, Totals(false, 1000.2, 5.001), false, "[a]", out _));
+            var burn = Step(first, t + 20000, Totals(false, 990, 5), false, "[b]", out with);
+            Assert.NotNull(burn); Assert.False(with);
+            Assert.Null(Step(burn, t + 30000, Totals(false, 990, 5), false, "[b]", out _));
+            var list = Step(burn, t + 80000, Totals(false, 990, 5), false, "[b]", out with);
+            Assert.NotNull(list); Assert.True(with);
+            var rebuilt = HydrogenSampler.Decide(burn, t + 30000, "Ship", Totals(false, 990, 5), false, "2/tank/Tank;", "[c]", out with);
+            Assert.NotNull(rebuilt); Assert.True(with);
+            var beat = Step(first, t + HydrogenSampler.HeartbeatMs, Totals(false, 1000, 5), false, "[a]", out with);
+            Assert.NotNull(beat); Assert.True(with);
+
+            var frozen = Step(first, t + 10000, Totals(true, 1000, 5), true, "[f]", out with);
+            Assert.NotNull(frozen); Assert.True(with);
+            Assert.Null(Step(frozen, t + HydrogenSampler.HeartbeatMs + 20000, Totals(true, 1000, 5), true, "[f]", out _));
+            Assert.NotNull(Step(frozen, t + 10000 + HydrogenSampler.FrozenHeartbeatMs, Totals(true, 1000, 5), true, "[f]", out _));
+            Assert.NotNull(Step(frozen, t + 20000, Totals(false, 1000, 5), false, "[a]", out _));
+
+            var lateNight = Clock.ToMs(new DateTime(2026, 11, 3, 23, 59, 55, DateTimeKind.Utc));
+            var night = Step(null, lateNight, Totals(true, 1000, 0), true, "[f]", out _);
+            Assert.NotNull(Step(night, lateNight + 10000, Totals(true, 1000, 0), true, "[f]", out with));
+            Assert.True(with);
+        }
+
+        [Fact]
+        public void A_sparse_history_holds_the_row_before_the_range_and_the_last_block_list()
+        {
+            var folder = Path.Combine(Path.GetTempPath(), "watcher-hydrogen-" + Guid.NewGuid().ToString("N"));
+            var t = Clock.ToMs(new DateTime(2026, 11, 3, 12, 0, 0, DateTimeKind.Utc));
+            const long grid = 42;
+            try
+            {
+                using (var writer = new WatcherStore(folder, () => 100000))
+                {
+                    writer.Add(new Row(Table.Hydrogen, t, t, grid, "Fixture", 1000d, 2000d, 0d, 0d, 0d, 0d, 0d, 1, "[{\"name\":\"Tank\"}]"));
+                    writer.Add(new Row(Table.Hydrogen, t + 3000000, t + 3000000, grid, "Fixture", 900d, 2000d, 0d, 0d, 0d, 0d, 0d, 1, ""));
+                }
+                using (var store = new WatcherStore(folder, () => 100000))
+                {
+                    var data = JObject.Parse(JsonConvert.SerializeObject(new WebData(store).Hydrogen(grid.ToString(), t + 600000, t + 3600000)));
+                    var series = Assert.Single((JArray)data["series"]);
+                    var points = (JArray)series["points"];
+                    Assert.Equal(2, points.Count);
+                    Assert.Equal(1000d, (double)points[0]["stored"]);
+                    Assert.Equal("Tank", (string)series["latest"][0]["name"]);
+                    Assert.Equal(HydrogenSampler.FrozenHeartbeatMs, (int)data["frozenHeartbeatMs"]);
                 }
             }
             finally { try { Directory.Delete(folder, true); } catch { } }
