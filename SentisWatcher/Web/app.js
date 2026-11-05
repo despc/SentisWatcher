@@ -12,7 +12,7 @@ const KIND_COLORS = {
   chat: '#bdc3c7', join: '#aab7b8', leave: '#7f8c8d', grid_added: '#48c9b0', grid_removed: '#16a085',
   grid_owner: '#af7ac5', grid_ownership: '#bb8fce', faction: '#d7bde2',
   jump: '#c39bd3', jump_passenger: '#a569bd', control: '#76d7c4', control_leave: '#45b39d', spawn: '#f7dc6f',
-  drill: '#b9770e',
+  drill: '#b9770e', conveyor_out: '#7dcea0', conveyor_in: '#a9dfbf', connect: '#f0b27a', disconnect: '#d35400',
 };
 
 // a jump: where it went, from the event's detail ("to=x;y;z ...")
@@ -49,7 +49,8 @@ const KIND_NAMES = {
   chat: 'чат', join: 'вход', leave: 'выход', grid_added: 'грид появился', grid_removed: 'грид исчез',
   grid_owner: 'смена владельца', grid_ownership: 'передача грида', faction: 'фракция', jump: 'прыжок',
   jump_passenger: 'прыжок пассажиром', control: 'сел за управление', control_leave: 'вышел из управления', spawn: 'новый персонаж',
-  drill: 'бурение',
+  drill: 'бурение', conveyor_out: 'конвейер: ушло на другой грид', conveyor_in: 'конвейер: пришло с другого грида',
+  connect: 'коннектор замкнут', disconnect: 'коннектор отжат',
 };
 
 // what the map shows: objects (markers, tracks, labels), events (their dots and jumps), or both
@@ -1687,9 +1688,9 @@ document.querySelectorAll('#layers button').forEach((b) => b.addEventListener('c
 // what the activity bars stack, bottom up; movement is drawn apart, as a faint area behind
 const CATEGORIES = [
   { name: 'бой', color: '#ec7063', kinds: ['damage', 'grind', 'destroyed', 'death'] },
-  { name: 'предметы', color: '#58d68d', kinds: ['transfer', 'drop', 'balance'] },
+  { name: 'предметы', color: '#58d68d', kinds: ['transfer', 'drop', 'balance', 'conveyor_out', 'conveyor_in'] },
   { name: 'стройка', color: '#5dade2', kinds: ['block_built', 'block_removed', 'weld', 'paste', 'grid_added', 'grid_removed'] },
-  { name: 'прыжки', color: '#c39bd3', kinds: ['jump', 'jump_passenger'] },
+  { name: 'прыжки и стыковки', color: '#c39bd3', kinds: ['jump', 'jump_passenger', 'connect', 'disconnect'] },
   { name: 'добыча', color: '#b9770e', kinds: ['drill'] },
   { name: 'прочее', color: '#bdc3c7', kinds: null },
 ];

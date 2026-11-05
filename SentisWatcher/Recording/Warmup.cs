@@ -17,6 +17,9 @@ namespace SentisWatcher.Recording
         /// <summary>The world has loaded: the wait starts.</summary>
         public static void Begin() => _loadedAt = DateTime.UtcNow;
 
+        /// <summary>Whether the world has loaded (what happens while it loads is not anyone's doing).</summary>
+        public static bool Loaded => _loadedAt != DateTime.MaxValue;
+
         /// <summary>Whether the wait is over (never before the world has loaded).</summary>
         public static bool Over => Passed(DateTime.UtcNow, _loadedAt);
 

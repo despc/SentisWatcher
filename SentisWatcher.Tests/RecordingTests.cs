@@ -80,6 +80,31 @@ namespace SentisWatcher.Tests
         }
     }
 
+    public class ConveyorTallyTests
+    {
+        [Fact]
+        public void Moves_of_a_window_become_one_per_blocks_item_and_starter_with_the_first_detail()
+        {
+            var t = new ConveyorTally();
+            var asked = 0;
+            for (var i = 0; i < 5; i++) t.Add(1000 + i, 10, 20, 7, "Component/SteelPlate|script", () => "plates #" + ++asked, 100, Vector3D.Zero);
+            t.Add(1001, 10, 20, 0, "Component/SteelPlate|conveyor", () => "plates by conveyor", 3, Vector3D.Zero);
+            t.Add(1002, 10, 21, 7, "Component/SteelPlate|script", () => "plates elsewhere", 4, Vector3D.Zero);
+            Assert.Null(t.Take(1000 + ConveyorTally.WindowMs - 1));
+            var done = t.Take(1000 + ConveyorTally.WindowMs);
+            Assert.Equal(3, done.Count);
+            var script = done.Single(m => m.Destination == 20 && m.Actor == 7);
+            Assert.Equal(500, script.Amount);
+            Assert.Equal(5, script.Count);
+            Assert.Equal(1000, script.First);
+            Assert.Equal("plates #1", script.Detail);
+            Assert.Equal(1, asked);
+            Assert.Null(t.Take(long.MaxValue));
+            t.Add(0, 1, 2, 0, "x", () => "x", 1, Vector3D.Zero);
+            Assert.Single(t.Take(1, force: true));
+        }
+    }
+
     public class InventoryCodecTests
     {
         private static readonly List<ItemStack> Items = new List<ItemStack>

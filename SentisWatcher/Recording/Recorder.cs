@@ -71,6 +71,7 @@ namespace SentisWatcher.Recording
         public void FlushAggregates(bool force = false)
         {
             DamageLog.Flush(this, force);
+            ConveyorLog.Flush(this, force);
             var done = Aggregator.Take(Clock.Now, force);
             if (done == null) return;
             foreach (var a in done)

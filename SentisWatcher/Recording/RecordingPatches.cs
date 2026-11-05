@@ -94,6 +94,9 @@ namespace SentisWatcher.Recording
 
         [ThreadStatic] private static TransferState _transfer;
 
+        /// <summary>Whether a player's move of an item is on (its own event says it: ConveyorLog leaves it out).</summary>
+        internal static bool InPlayerTransfer => _transfer.Active;
+
         private static void TransferPrefix(MyInventory __instance, uint itemId, long destinationOwnerId, byte destInventoryIndex)
         {
             _transfer = default;
