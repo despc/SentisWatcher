@@ -1029,33 +1029,111 @@ function focusOn(pos) {
   $('#follow').checked = false;
 }
 
+// The moment's list: everyone active in the range of the time line (positions or events), most active first, the
+// filter applied to all of them; those on the map at the moment have their place and the camera goes there on a
+// click. Only those on the map at the moment were listed before, and a grid of an hour before was "nobody found".
+const momentRangeLoading = new Map();     // filter -> its request under way
+function momentRange(q) {
+  if (objects.has(q)) return objects.get(q);
+  if (!momentRangeLoading.has(q)) {
+    const loading = loadObjects(q)
+      .catch(() => objects.set(q, { players: [], grids: [], playersTotal: 0, gridsTotal: 0 }))
+      .finally(() => { momentRangeLoading.delete(q); if ($('#momentFilter').value.trim() === q) renderMoment(); });
+    momentRangeLoading.set(q, loading);
+  }
+  return null;
+}
+
 function renderMoment() {
   const m = state.moment;
   if (!m) return;
-  const q = $('#momentFilter').value.trim().toLowerCase();
-  const match = (o) => !q || (o.name || '').toLowerCase().includes(q) || String(o.id).includes(q);
-  const players = m.players.filter(match), grids = m.grids.filter(match);
-  const row = (o, kind) => {
-    const tracked = findTrack(trackKey(kind, o.id));
-    const where = kind === 'grid' ? `${o.blocks} бл.${o.static ? ', статика' : ''}` : (o.grid ? 'на гриде' : 'пешком');
-    return `<div class="item" data-kind="${kind}" data-id="${esc(o.id)}">
-      ${trackButton(kind, o.id, o.name)}
-      <span class="count ${o.events ? 'hot' : ''}">${o.events ? plural(o.events, 'событие', 'события', 'событий') : 'без событий'}</span>
-      <b>${esc(o.name || o.id)}</b><br><span class="when">${esc(where)} · позиция ${fmt(o.t, false)}</span></div>`;
+  const q = $('#momentFilter').value.trim();
+  const lower = q.toLowerCase();
+  const match = (o) => !lower || (o.name || '').toLowerCase().includes(lower) || String(o.id).includes(lower);
+  const range = momentRange(q);
+  // the range's list in its order, each with its place at the moment when it has one; then those on the map at the
+  // moment the range's list left out (beyond its 300, or no name in it)
+  const list = (kind, atMoment, inRange) => {
+    const here = new Map(atMoment.filter(match).map((o) => [String(o.id), o]));
+    const rows = (inRange || []).map((o) => ({ kind, id: String(o.id), name: o.name, events: o.events, positions: o.positions, at: here.get(String(o.id)) }));
+    const listed = new Set(rows.map((r) => r.id));
+    for (const o of here.values()) if (!listed.has(String(o.id))) rows.push({ kind, id: String(o.id), name: o.name, events: o.events, at: o });
+    return rows;
   };
-  $('#moment').innerHTML = `<p class="hint">${fmt(m.at)}: игроков ${m.players.length}, гридов ${m.gridsTotal};
-      события — за интервал шкалы ${fmt(m.eventsFrom)} – ${fmt(m.eventsTo)}${q ? `; по запросу: ${players.length + grids.length}` : ''}.</p>` +
-    (players.length ? `<div class="head">Игроки</div>` + players.map((o) => row(o, 'player')).join('') : '') +
-    (grids.length ? `<div class="head">Гриды</div>` + grids.slice(0, 300).map((o) => row(o, 'grid')).join('') +
-      (grids.length > 300 ? `<div class="more">и ещё ${grids.length - 300} — уточните поиск</div>` : '') : '') +
-    (!players.length && !grids.length ? `<p class="hint">${q ? 'Никого не нашлось.' : 'В этот момент записей нет.'}</p>` : '');
+  const players = list('player', m.players, range && range.players);
+  const grids = list('grid', m.grids, range && range.grids);
+  // a tracked one without a position at the moment (a player offline whose welders weld in his name): the place of
+  // his event nearest the moment, within the moment's 5 minutes
+  for (const r of [...players, ...grids]) {
+    if (r.at) continue;
+    const track = findTrack(trackKey(r.kind, r.id));
+    if (!track || !track.located || !track.located.length) continue;
+    const i = indexAt(track.locatedTimes, state.t);
+    const near = [track.located[i], track.located[i + 1]].filter(Boolean).sort((a, c) => Math.abs(a.t - state.t) - Math.abs(c.t - state.t))[0];
+    if (near && Math.abs(near.t - state.t) <= 300_000) r.event = near;
+  }
+  const row = (r) => {
+    const o = r.at;
+    const where = o ? (r.kind === 'grid' ? `${o.blocks} бл.${o.static ? ', статика' : ''}` : (o.grid ? 'на гриде' : 'пешком')) + ` · позиция ${fmt(o.t, false)}`
+      : r.event ? `без позиции · ${KIND_NAMES[r.event.kind] || r.event.kind} ${fmt(r.event.t, false)}`
+      : 'не на карте в этот момент';
+    const note = r.events ? plural(r.events, 'событие', 'события', 'событий') : (r.positions ? plural(r.positions, 'точка', 'точки', 'точек') : 'без событий');
+    return `<div class="item${o || r.event ? '' : ' away'}" data-kind="${r.kind}" data-id="${esc(r.id)}">
+      ${trackButton(r.kind, r.id, r.name)}
+      <span class="count ${r.events ? 'hot' : ''}">${note}</span>
+      <b>${esc(r.name || r.id)}</b><br><span class="when">${esc(where)}</span></div>`;
+  };
+  const more = (shown, total) => total > shown ? `<div class="more">и ещё ${total - shown} — уточните поиск</div>` : '';
+  const onMap = players.filter((r) => r.at).length + grids.filter((r) => r.at).length;
+  $('#moment').innerHTML = `<p class="hint">За интервал шкалы ${fmt(m.eventsFrom)} – ${fmt(m.eventsTo)}` +
+      (range ? `: игроков ${range.playersTotal}, гридов ${range.gridsTotal}${q ? ' по запросу' : ''}` : ' — загружаю…') +
+      `; на карте в ${fmt(m.at)}: ${onMap}${q ? ' по запросу' : ''} (игроков всего ${m.players.length}, гридов ${m.gridsTotal}).</p>` +
+    (players.length ? `<div class="head">Игроки</div>` + players.slice(0, 300).map(row).join('') + more(Math.min(players.length, 300), range ? Math.max(range.playersTotal, players.length) : players.length) : '') +
+    (grids.length ? `<div class="head">Гриды</div>` + grids.slice(0, 300).map(row).join('') + more(Math.min(grids.length, 300), range ? Math.max(range.gridsTotal, grids.length) : grids.length) : '') +
+    (!players.length && !grids.length ? `<p class="hint">${!range ? '' : q ? 'Никого не нашлось.' : 'За интервал записей нет.'}</p>` : '');
   document.querySelectorAll('#moment .item').forEach((el) => {
-    const list = el.dataset.kind === 'player' ? m.players : m.grids;
-    const o = list.find((x) => x.id === el.dataset.id);
-    el.addEventListener('click', () => focusOn(world(o.x, o.y, o.z)));
-    el.addEventListener('dblclick', () => flyTo(world(o.x, o.y, o.z)));
+    const r = [...players, ...grids].find((x) => x.kind === el.dataset.kind && x.id === el.dataset.id);
+    if (!r) return;
+    const place = r.at || r.event;
+    if (!r.at && r.event) {
+      el.addEventListener('click', () => focusOn(world(place.x, place.y, place.z)));
+      el.addEventListener('dblclick', () => flyTo(world(place.x, place.y, place.z)));
+      return;
+    }
+    if (!r.at) {
+      el.title = 'двойной клик — к его первому действию в интервале';
+      el.addEventListener('dblclick', () => toFirstActivity(r.kind, r.id, r.name));
+      return;
+    }
+    el.addEventListener('click', () => focusOn(world(r.at.x, r.at.y, r.at.z)));
+    el.addEventListener('dblclick', () => flyTo(world(r.at.x, r.at.y, r.at.z)));
   });
   bindTrackButtons($('#moment'));
+}
+
+// The moment of the first thing a player or grid did in the range (its first position written or its first event),
+// and the camera there: for one not on the map at the moment
+async function toFirstActivity(kind, id, name) {
+  const tracked = findTrack(trackKey(kind, id));
+  let points, events;
+  if (tracked) ({ points, events } = tracked);
+  else {
+    status('Ищу первое действие ' + (name || id) + '…');
+    const [data, ev] = await Promise.all([
+      api('track', { kind, id, from: state.from, to: state.to }),
+      api('events', { id, from: state.from, to: state.to }),
+    ]);
+    points = data.points || []; events = ev.events || [];
+    status('');
+  }
+  const point = points.length ? points[0] : null;
+  const event = events.find((e) => e.x !== null && e.x !== undefined) || null;
+  const first = Math.min(point ? point[0] : Infinity, events.length ? events[0].t : Infinity);
+  if (!isFinite(first)) { status('За интервал у ' + (name || id) + ' нет ни позиций, ни событий', true); return; }
+  setTime(first);
+  // where: its position at that time, else the place of its first event with one
+  const at = point && (!event || Math.abs(point[0] - first) <= Math.abs(event.t - first)) ? [point[1], point[2], point[3]] : event ? [event.x, event.y, event.z] : null;
+  if (at) flyTo(world(at[0], at[1], at[2]));
 }
 
 // "+ следить" adds to the view; once tracked, the same button stops it
@@ -1427,6 +1505,11 @@ const activityNote = (o) => [o.events ? plural(o.events, 'событие', 'со
 
 async function openDropdown() {
   const q = $('#search').value.trim();
+  if (!objects.has(q)) {
+    // a long range takes seconds: say so, else the empty list looks like nobody found
+    results.innerHTML = '<div class="none">Ищу…</div>';
+    results.hidden = false;
+  }
   const all = await loadObjects(q);
   if ($('#search').value.trim() !== q) return;      // typed on meanwhile
   const players = all.players.map((o) => ({ kind: 'player', id: o.id, name: o.name, note: activityNote(o) }));
@@ -1547,7 +1630,11 @@ async function setRange(from, to, t, remember = true, hot = false) {
   renderTracked();
   status('');
   setTime(state.t);
-  if (hot) await focusHotspot();
+  // a new range while something is tracked: to the first thing the selected one did in it, not to where the whole
+  // server was busiest (that took the moment and the camera away from him)
+  const followed = selectedTrack() || state.tracks[0];
+  if (hot && followed && (followed.points.length || followed.events.length)) await toFirstActivity(followed.kind, followed.id, followed.name);
+  else if (hot) await focusHotspot();
 }
 
 $('#reload').addEventListener('click', () => setRange(fromInput($('#from').value), fromInput($('#to').value), state.t, true, true));
@@ -1696,20 +1783,54 @@ const loadActivity = debounce(async () => {
   const buckets = Math.max(20, Math.floor(timeline.clientWidth / 3));
   const data = await api('activity', { from: state.from, to: state.to, buckets });
   if (request !== activityRequest) return;
-  for (const b of data.buckets) {
-    b.categories = CATEGORIES.map(() => 0);
-    b.events = 0;
-    for (const [kind, n] of Object.entries(b.counts)) {
-      if (kind.startsWith('@')) continue;
-      b.categories[categoryOf(kind)] += n;
-      b.events += n;
-    }
-    b.movement = (b.counts['@players'] || 0) + (b.counts['@grids'] || 0);
-  }
+  data.buckets.forEach(sumBucket);
   activity = data;
   activityVersion++;
   drawTimeline();
 }, 150);
+
+// Counts by kind into the buckets' categories, events and movement
+function sumBucket(b) {
+  b.categories = CATEGORIES.map(() => 0);
+  b.events = 0;
+  for (const [kind, n] of Object.entries(b.counts)) {
+    if (kind.startsWith('@')) continue;
+    b.categories[categoryOf(kind)] += n;
+    b.events += n;
+  }
+  b.movement = (b.counts['@players'] || 0) + (b.counts['@grids'] || 0);
+}
+
+// What the bars show: the whole server's activity, or - while anything is tracked - only that of the tracked
+// players and grids (their events, an event shared by two of them once, and their positions), in the same slices
+let trackedActivity = null, trackedActivityKey = '';
+function shownActivity() {
+  if (!state.tracks.length || !activity) return activity;
+  const key = activityVersion + '|' + state.tracks.map((t) => t.key + '/' + t.events.length + '/' + t.points.length).join(',');
+  if (key === trackedActivityKey) return trackedActivity;
+  const buckets = new Map();
+  const bucket = (t) => {
+    const b = Math.floor((t - activity.from) / activity.width);
+    if (!buckets.has(b)) buckets.set(b, { b, counts: {} });
+    return buckets.get(b).counts;
+  };
+  const seen = new Set();
+  for (const track of state.tracks) {
+    for (const e of track.events) {
+      const id = [e.t, e.kind, e.actor, e.entity].join('|');
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const c = bucket(e.t);
+      c[e.kind] = (c[e.kind] || 0) + (e.count || 1);
+    }
+    const what = track.kind === 'grid' ? '@grids' : '@players';
+    for (const p of track.points) { const c = bucket(p[0]); c[what] = (c[what] || 0) + 1; }
+  }
+  trackedActivity = { from: activity.from, width: activity.width, tracked: true, buckets: [...buckets.values()].sort((a, c) => a.b - c.b) };
+  trackedActivity.buckets.forEach(sumBucket);
+  trackedActivityKey = key;
+  return trackedActivity;
+}
 
 // The bars, the axis and the rows of the tracked objects change with the data, not with the moment: drawn
 // into a canvas of their own when the data changes, and copied under the moment's line otherwise.
@@ -1750,6 +1871,13 @@ function drawTimelineBase(g, w, h, ratio) {
   const x = (t) => (t - state.from) / span * w;
 
   // activity: bars by category (square root scale, so a quiet minute still shows next to a battle)
+  const activity = shownActivity();
+  if (activity && activity.tracked) {
+    g.font = '10px Consolas, monospace';
+    g.fillStyle = '#8b95a5';
+    g.textAlign = 'left';
+    g.fillText('только отслеживаемые', 4, AXIS + 9);
+  }
   if (activity && activity.buckets.length) {
     const bw = Math.max(1, activity.width / span * w);
     let maxEvents = 1, maxMove = 1;
@@ -1960,6 +2088,7 @@ window.addEventListener('keydown', (e) => {
 // what happened in the slice under the mouse
 timeline.addEventListener('mousemove', (ev) => {
   const tip = $('#tip');
+  const activity = shownActivity();
   if (!activity) { tip.hidden = true; return; }
   const index = Math.floor((timeFromMouse(ev) - activity.from) / activity.width);
   const b = activity.buckets.find((x) => x.b === index);

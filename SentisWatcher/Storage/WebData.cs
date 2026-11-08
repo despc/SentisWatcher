@@ -345,6 +345,77 @@ namespace SentisWatcher.Storage
         /// </summary>
         public object Objects(long from, long to, string q = null, int max = 300, bool withInventory = false)
         {
+            var (players, grids, names, holders) = RangeObjects(from, to, withInventory);
+            q = string.IsNullOrWhiteSpace(q) ? null : q.Trim();
+            var result = new Dictionary<string, object>();
+            foreach (var (key, of) in new[] { ("players", players), ("grids", grids) })
+            {
+                var matching = of
+                    .Select(p => (Id: p.Key.ToString(CultureInfo.InvariantCulture), Positions: p.Value[0], Events: p.Value[1]))
+                    .Where(p => names.ContainsKey(p.Id))       // ids nobody knows (an NPC without a name, id 0) are left out
+                    // the inventories page: only who has an inventory - no grids without one, no animals
+                    .Where(p => !withInventory || (key == "grids" ? holders.Grids : holders.Players).Contains(long.Parse(p.Id, CultureInfo.InvariantCulture)))
+                    .Where(p => q == null || p.Id.Contains(q) || names[p.Id].IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0)
+                    .ToList();
+                result[key] = matching.OrderByDescending(p => p.Events * 10 + p.Positions).Take(max)
+                    .Select(p => new Dictionary<string, object>
+                    {
+                        ["id"] = p.Id, ["name"] = names[p.Id], ["positions"] = p.Positions, ["events"] = p.Events,
+                    }).ToList();
+                result[key + "Total"] = matching.Count;
+            }
+            return result;
+        }
+
+        /// <summary>A range's players and grids with their activity, their names and who holds an inventory.</summary>
+        private sealed class RangeObjectsEntry
+        {
+            public DateTime Made;
+            public Lazy<(Dictionary<long, long[]> Players, Dictionary<long, long[]> Grids, Dictionary<string, string> Names, (HashSet<long> Grids, HashSet<long> Players) Holders)> Value;
+        }
+
+        /// <summary>How long a range's objects are kept for the search's next letters.</summary>
+        private static readonly TimeSpan RangeObjectsKept = TimeSpan.FromSeconds(60);
+
+        private readonly Dictionary<(long, long, bool), RangeObjectsEntry> _rangeObjects = new Dictionary<(long, long, bool), RangeObjectsEntry>();
+
+        /// <summary>
+        /// The activity of everyone in the range, worked out once for it and kept a minute: it takes ~3 s for a day,
+        /// and the drop-down asked for it again with every letter typed - the queries ran side by side over the same
+        /// files and the list came 10-15 s after the typing, empty till then (the stand, 08.11.2026). Requests for
+        /// the same range at once share one working out.
+        /// </summary>
+        private (Dictionary<long, long[]> Players, Dictionary<long, long[]> Grids, Dictionary<string, string> Names, (HashSet<long> Grids, HashSet<long> Players) Holders)
+            RangeObjects(long from, long to, bool withInventory)
+        {
+            RangeObjectsEntry entry;
+            lock (_rangeObjects)
+            {
+                var now = DateTime.UtcNow;
+                foreach (var old in _rangeObjects.Where(p => now - p.Value.Made > RangeObjectsKept).Select(p => p.Key).ToList())
+                    _rangeObjects.Remove(old);
+                var key = (from, to, withInventory);
+                if (!_rangeObjects.TryGetValue(key, out entry))
+                    _rangeObjects[key] = entry = new RangeObjectsEntry
+                    {
+                        Made = now,
+                        Value = new Lazy<(Dictionary<long, long[]>, Dictionary<long, long[]>, Dictionary<string, string>, (HashSet<long>, HashSet<long>))>(
+                            () => WorkOutRangeObjects(from, to, withInventory)),
+                    };
+            }
+            try
+            {
+                return entry.Value.Value;
+            }
+            catch
+            {
+                lock (_rangeObjects) _rangeObjects.Remove((from, to, withInventory));
+                throw;
+            }
+        }
+
+        private (Dictionary<long, long[]>, Dictionary<long, long[]>, Dictionary<string, string>, (HashSet<long>, HashSet<long>)) WorkOutRangeObjects(long from, long to, bool withInventory)
+        {
             var holders = withInventory ? Holders(from, to) : default;
             var players = new Dictionary<long, long[]>();     // id -> positions, events
             var grids = new Dictionary<long, long[]>();
@@ -380,25 +451,7 @@ namespace SentisWatcher.Storage
                         }
                 }
             var names = Names(players.Keys.Concat(grids.Keys), from - 86_400_000L, to);
-            q = string.IsNullOrWhiteSpace(q) ? null : q.Trim();
-            var result = new Dictionary<string, object>();
-            foreach (var (key, of) in new[] { ("players", players), ("grids", grids) })
-            {
-                var matching = of
-                    .Select(p => (Id: p.Key.ToString(CultureInfo.InvariantCulture), Positions: p.Value[0], Events: p.Value[1]))
-                    .Where(p => names.ContainsKey(p.Id))       // ids nobody knows (an NPC without a name, id 0) are left out
-                    // the inventories page: only who has an inventory - no grids without one, no animals
-                    .Where(p => !withInventory || (key == "grids" ? holders.Grids : holders.Players).Contains(long.Parse(p.Id, CultureInfo.InvariantCulture)))
-                    .Where(p => q == null || p.Id.Contains(q) || names[p.Id].IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0)
-                    .ToList();
-                result[key] = matching.OrderByDescending(p => p.Events * 10 + p.Positions).Take(max)
-                    .Select(p => new Dictionary<string, object>
-                    {
-                        ["id"] = p.Id, ["name"] = names[p.Id], ["positions"] = p.Positions, ["events"] = p.Events,
-                    }).ToList();
-                result[key + "Total"] = matching.Count;
-            }
-            return result;
+            return (players, grids, names, holders);
         }
 
         /// <summary>

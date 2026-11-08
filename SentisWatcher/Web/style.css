@@ -79,6 +79,7 @@ aside { background: var(--panel); border-left: 1px solid var(--line); display: f
 .list .item:hover { background: #232a36; }
 .list .item.now { background: #2b3446; }
 .list .item.later { opacity: 0.5; }
+.list .item.away { opacity: 0.6; cursor: default; }
 .item .when { color: var(--dim); font-family: Consolas, monospace; font-size: 11px; }
 .item .kind { display: inline-block; padding: 0 5px; border-radius: 3px; color: #111; font-size: 11px; font-weight: 600; margin: 0 4px; }
 .item .detail { color: var(--dim); word-break: break-word; }
