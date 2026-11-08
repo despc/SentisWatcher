@@ -163,7 +163,13 @@ namespace SentisWatcher.Recording
             }
         }
 
-        /// <summary>Visits every inventory with flows not yet written (the server stops): nothing booked is lost.</summary>
+        /// <summary>
+        /// Visits every inventory with flows not yet written (the server stops): nothing booked is lost. Written only,
+        /// not weighed against what was seen: the world is being unloaded then, and the inventories read half taken
+        /// apart - a ship's every block "lost with no cause" and "changed past the ledger" by the same amounts a
+        /// millisecond apart, 245 of the week's 271 alerts on prod, all in the last second before each restart
+        /// (server_stop 18:00:10.168, the alerts 18:00:10.148-150, 08.11.2026).
+        /// </summary>
         public void FlushPending()
         {
             var ledger = InventoryLedger.Current;
@@ -172,7 +178,7 @@ namespace SentisWatcher.Recording
             foreach (var entity in ledger.PendingEntities())
             {
                 if (entity.Closed || entity.MarkedForClose) continue;
-                Visit(entity, entity is MyCubeBlock block ? block.CubeGrid.EntityId : 0, Identities.InventoryOwner(entity), now);
+                Visit(entity, entity is MyCubeBlock block ? block.CubeGrid.EntityId : 0, Identities.InventoryOwner(entity), now, final: true);
             }
         }
 
@@ -282,7 +288,7 @@ namespace SentisWatcher.Recording
             return id == null ? "" : id.Value.TypeId.ToString().Replace("MyObjectBuilder_", "") + "/" + id.Value.SubtypeName;
         }
 
-        private void Visit(MyEntity owner, long gridId, long ownerIdentity, long now)
+        private void Visit(MyEntity owner, long gridId, long ownerIdentity, long now, bool final = false)
         {
             // the animals' pockets are no one's
             if (owner is MyCharacter animal && Wildlife.IsAnimal(animal)) return;
@@ -309,7 +315,7 @@ namespace SentisWatcher.Recording
                     gasRaw = (long)(tank.FilledRatio * tank.Capacity * 1_000_000);
                     _stacks.Add(new ItemStack("Gas", tank.BlockDefinition.StoredGasId.SubtypeName, gasRaw));
                 }
-                Check(owner, inventory, ownerIdentity);
+                if (!final) Check(owner, inventory, ownerIdentity);
 
                 var items = new Dictionary<string, long>();
                 foreach (var stack in _stacks)
@@ -327,7 +333,8 @@ namespace SentisWatcher.Recording
                 // inventory, or one made from its contents - sometimes a bag seen empty first and filled a moment
                 // later): what comes into it past the hooks came from there. A character leaves a backpack
                 // (MyInventoryBagEntity), a block with TemporaryContainers on a "Cargo Bag" - another class
-                if (owner is MyInventoryBagEntity || owner is MyCargoContainerInventoryBagEntity) BookBag(owner, ownerIdentity, seen?.Items, items, ref flows);
+                if (final) { }
+                else if (IsBag(owner)) BookBag(owner, ownerIdentity, seen?.Items, items, ref flows);
                 else if (seen != null || pending?.Born == true) Balance(owner, ownerIdentity, seen?.Items, items, ref flows);
 
                 var hash = InventoryCodec.Hash(_stacks, ownerIdentity ^ (gridId << 1));
@@ -406,10 +413,14 @@ namespace SentisWatcher.Recording
                 _recorder.Alert(KnownAmounts.AlertKind, ownerIdentity, owner.EntityId, $"{Describe(owner)}: {item} {amount} ({bad})",
                     limitBy: KnownAmounts.Key(owner.EntityId, item, amount).GetHashCode());
             }
-            if (Invariants.Overfilled((double)inventory.CurrentVolume, (double)inventory.MaxVolume))
+            // (not a bag: the game makes it as big as what is put into it - "Cargo Bag (1): volume 0 of 0", six times a week)
+            if (!IsBag(owner) && Invariants.Overfilled((double)inventory.CurrentVolume, (double)inventory.MaxVolume))
                 _recorder.Alert("overfilled", ownerIdentity, owner.EntityId,
                     $"{Describe(owner)}: volume {(double)inventory.CurrentVolume:0.###} of {(double)inventory.MaxVolume:0.###}");
         }
+
+        /// <summary>A backpack a dead character leaves, or the "Cargo Bag" a destroyed block's things go into.</summary>
+        private static bool IsBag(MyEntity owner) => owner is MyInventoryBagEntity || owner is MyCargoContainerInventoryBagEntity;
 
         private readonly KnownAmounts _knownAmounts = new KnownAmounts();
         private static HashSet<string> _scaledIngredients;

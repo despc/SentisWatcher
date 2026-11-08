@@ -103,6 +103,32 @@ namespace SentisWatcher.Ledger
         }
 
         /// <summary>The items where more arrived than left: a move that made items.</summary>
+        /// <summary>
+        /// What grinding a block gave past what it is built of and was welded with: more than one of an item (a block
+        /// not whole gives one out of its construction stockpile - "+1 steel plate" on blocks 0-84 % built, five
+        /// times a week on prod, 11.2026). A component counts as itself and as what it is ground into
+        /// (<paramref name="turnsInto"/>): batteries came out with PowerCell "built of 0".
+        /// </summary>
+        public static Dictionary<string, long> GrindExcess(IReadOnlyDictionary<string, long> gaveOut, IEnumerable<(string Component, string GroundInto, long Raw)> builtOf,
+            IReadOnlyDictionary<string, long> welded)
+        {
+            var built = new Dictionary<string, long>();
+            foreach (var (component, into, raw) in builtOf)
+            {
+                built.TryGetValue(into, out var was);
+                built[into] = was + raw;
+                if (component == into) continue;
+                built.TryGetValue(component, out was);
+                built[component] = was + raw;
+            }
+            var excess = Excess(gaveOut, built, welded);
+            foreach (var key in excess.Where(p => p.Value <= OneItem).Select(p => p.Key).ToList()) excess.Remove(key);
+            return excess;
+        }
+
+        /// <summary>One item, raw.</summary>
+        public const long OneItem = 1_000_000L;
+
         public static Dictionary<string, long> Excess(IReadOnlyDictionary<string, long> arrived, IReadOnlyDictionary<string, long> left, IReadOnlyDictionary<string, long> allowance = null)
         {
             var result = new Dictionary<string, long>();

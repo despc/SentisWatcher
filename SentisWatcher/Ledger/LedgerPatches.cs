@@ -573,11 +573,13 @@ namespace SentisWatcher.Ledger
                     // a component comes out as its block's DeconstructId, one for one (the prototech ones as
                     // Ingot/PrototechScrap): built of and welded in are counted as what they come out as
                     var built = new Dictionary<string, long>();
+                    var builtOf = new List<(string, string, long)>();
                     var turnsInto = new Dictionary<string, string>();
                     foreach (var component in block.BlockDefinition.Components)
                     {
                         var item = ItemKeys.Of((component.DeconstructItem ?? component.Definition).Id);
                         turnsInto[ItemKeys.Of(component.Definition.Id)] = item;
+                        builtOf.Add((ItemKeys.Of(component.Definition.Id), item, component.Count * 1_000_000L));
                         built.TryGetValue(item, out var was);
                         built[item] = was + component.Count * 1_000_000L;
                     }
@@ -588,7 +590,7 @@ namespace SentisWatcher.Ledger
                         welded.TryGetValue(item, out var was);
                         welded[item] = was + pair.Value;
                     }
-                    excess = LedgerMath.Excess(book.Out.Where(p => p.Key != "Ore/Scrap").ToDictionary(p => p.Key, p => p.Value), built, welded);
+                    excess = LedgerMath.GrindExcess(book.Out.Where(p => p.Key != "Ore/Scrap").ToDictionary(p => p.Key, p => p.Value), builtOf, welded);
                     // the block's whole book goes into the alert: one that came with "+1 steel plate" alone could not be
                     // told from a block welded past the ledger
                     if (excess.Count > 0)
