@@ -482,7 +482,7 @@ namespace SentisWatcher.Storage
         public object Moment(long at, long window, int max = 2000, long? eventsFrom = null, long? eventsTo = null)
         {
             window = Math.Max(10_000, Math.Min(3_600_000, window));
-            // the events and jumps: of the given range (the one chosen on the timeline), else of the window
+            // the events: of the given range (the one chosen on the timeline), else of the window
             var ea = eventsFrom ?? at - window;
             var eb = eventsTo ?? at + window;
             if (eb < ea) (ea, eb) = (eb, ea);
@@ -534,19 +534,6 @@ namespace SentisWatcher.Storage
                         var kind = r.IsDBNull(2) ? null : r.GetString(2);
                         AddEvents(kind == "block" && !r.IsDBNull(3) ? r.GetInt64(3) : r.GetInt64(1), count);
                     }
-            var jumps = new List<Dictionary<string, object>>();
-            foreach (var db in Days(ea, eb))
-                using (db)
-                using (var cmd = Command(db, "SELECT t, actor, entity, x, y, z, amount, detail FROM events WHERE kind='jump' AND t BETWEEN @a AND @b ORDER BY t LIMIT 500",
-                           ("@a", ea), ("@b", eb)))
-                using (var r = cmd.ExecuteReader())
-                    while (r.Read())
-                        jumps.Add(new Dictionary<string, object>
-                        {
-                            ["t"] = r.GetInt64(0), ["actor"] = Id(r, 1), ["entity"] = Id(r, 2),
-                            ["x"] = Num(r, 3), ["y"] = Num(r, 4), ["z"] = Num(r, 5), ["amount"] = Num(r, 6),
-                            ["detail"] = r.IsDBNull(7) ? null : r.GetString(7),
-                        });
             var names = Names(players.Keys.Concat(grids.Keys), at - 86_400_000L, at + window);
             string Key(long id) => id.ToString(CultureInfo.InvariantCulture);
             long Events(long id) => events.TryGetValue(id, out var c) ? c : 0;
@@ -570,7 +557,6 @@ namespace SentisWatcher.Storage
                         ["events"] = Events(p.Key),
                     }).ToList(),
                 ["gridsTotal"] = grids.Count,
-                ["jumps"] = jumps,
             };
         }
 

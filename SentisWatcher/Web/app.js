@@ -1013,14 +1013,7 @@ function buildAmbient() {
   };
   m.players.forEach((o) => add(o, 'player'));
   m.grids.forEach((o) => add(o, 'grid'));
-  for (const j of m.jumps || []) {
-    if (findTrack(trackKey('grid', j.entity))) continue;      // a tracked grid draws its own
-    for (const o of jumpLine(j, '#c39bd3')) {
-      o.userData = o.isSprite ? { ambientJump: j, layer: 'events' } : { layer: 'events' };
-      o.visible = showEventLayer();
-      ambient.add(o);
-    }
-  }
+  // jumps are drawn only by the tracked players and grids (renderEvents): all the world's jumps cluttered the map
   if (!focusedOnce && !state.tracks.length && first) {
     // nothing chosen yet: look at the most active one
     focusedOnce = true;
@@ -1144,8 +1137,8 @@ function hover(ev) {
   tip.hidden = false;
   tip.style.left = ev.clientX + 14 + 'px';
   tip.style.top = ev.clientY + 14 + 'px';
-  if (o.userData.ambientJump || o.userData.jumpEnd) {
-    const j = o.userData.ambientJump || o.userData.jumpEnd;
+  if (o.userData.jumpEnd) {
+    const j = o.userData.jumpEnd;
     tip.innerHTML = `<b>прыжок</b> ${fmt(j.t, false)}${j.amount ? ' на ' + distanceText(j.amount) : ''}<br>${esc((j.detail || '').replace(/^to=\S+\s*/, ''))}`;
     return;
   }
@@ -1171,12 +1164,6 @@ renderer.domElement.addEventListener('click', (ev) => {
   if (controls.consumeDrag()) return;               // (the end of turning the view, not a click)
   const o = pick(ev);
   if (!o) return;
-  if (o.userData.ambientJump) {
-    const j = o.userData.ambientJump;
-    setTime(j.t);
-    addTrack('grid', j.entity).then(() => { buildAmbient(); renderMoment(); });
-    return;
-  }
   if (o.userData.jumpEnd && !o.userData.track) return;
   if (o.userData.ambient) {
     const a = o.userData.ambient;
