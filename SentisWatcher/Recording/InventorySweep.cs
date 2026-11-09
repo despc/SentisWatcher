@@ -91,7 +91,20 @@ namespace SentisWatcher.Recording
             _recorder = recorder;
             var today = DateTime.UtcNow.Date;
             _lastRun = Task.Run(() => recorder.Store.LastHeld(today.AddDays(-1), today));
+            _created = Clock.Now;
         }
+
+        /// <summary>When the sweep was made: the first pass waits for the last run's rows that long at most.</summary>
+        private readonly long _created;
+        private const long LastRunWaitMs = 60_000;
+
+        /// <summary>
+        /// The last rows of the last run by inventory, until each is first visited: the world loaded is the save, not
+        /// what was written last - a crash rolls back to the save, a stop has the last minutes after it written but not
+        /// kept. A visit against nothing booked that difference nowhere: "does not add up" by the amount (a player's
+        /// Ice +1002 on eight O2/H2 generators, prod, the restart of 21:39-21:46 08.11.2026). It goes as "restart".
+        /// </summary>
+        private Dictionary<(long, int), Dictionary<string, long>> _lastHeld;
 
         /// <summary>What the day files had not gone when the server started; taken after the first pass.</summary>
         private Task<List<WatcherStore.HeldRow>> _lastRun;
@@ -124,6 +137,9 @@ namespace SentisWatcher.Recording
             if (_entityCursor >= _entities.Length && _blocks == null)
             {
                 if (now - _passStarted < PassMs) return;
+                // the first pass with the last run's rows to weigh against (they are read in a moment)
+                if (_lastHeld == null && _lastRun != null && !_lastRun.IsCompleted && now - _created < LastRunWaitMs) return;
+                if (_lastHeld == null) _lastHeld = LastHeldByInventory();
                 StartPass(now);
             }
             while (watch.ElapsedTicks < budget)
@@ -180,6 +196,28 @@ namespace SentisWatcher.Recording
                 if (entity.Closed || entity.MarkedForClose) continue;
                 Visit(entity, entity is MyCubeBlock block ? block.CubeGrid.EntityId : 0, Identities.InventoryOwner(entity), now, final: true);
             }
+        }
+
+        private Dictionary<(long, int), Dictionary<string, long>> LastHeldByInventory()
+        {
+            var result = new Dictionary<(long, int), Dictionary<string, long>>();
+            var task = _lastRun;
+            if (task == null || !task.IsCompleted || task.IsFaulted) return result;
+            foreach (var row in task.Result) result[(row.Entity, row.Inv)] = ItemsOf(row.Items);
+            return result;
+        }
+
+        private static Dictionary<string, long> ItemsOf(string encoded)
+        {
+            var items = new Dictionary<string, long>();
+            foreach (var stack in InventoryCodec.Decode(encoded))
+            {
+                if (stack.Type == "Gas") continue;
+                var name = stack.Type + "/" + stack.Subtype;
+                items.TryGetValue(name, out var was);
+                items[name] = was + stack.Raw;
+            }
+            return items;
         }
 
         /// <summary>Starts the next pass at the next frame instead of waiting for the period.</summary>
@@ -333,7 +371,10 @@ namespace SentisWatcher.Recording
                 // inventory, or one made from its contents - sometimes a bag seen empty first and filled a moment
                 // later): what comes into it past the hooks came from there. A character leaves a backpack
                 // (MyInventoryBagEntity), a block with TemporaryContainers on a "Cargo Bag" - another class
-                if (final) { }
+                Dictionary<string, long> lastRun = null;
+                if (seen == null && _lastHeld != null && _lastHeld.TryGetValue(key, out lastRun)) _lastHeld.Remove(key);
+                if (final) Expected(seen?.Items, items, flows);
+                else if (lastRun != null) BookRestart(lastRun, items, ref flows);
                 else if (IsBag(owner)) BookBag(owner, ownerIdentity, seen?.Items, items, ref flows);
                 else if (seen != null || pending?.Born == true) Balance(owner, ownerIdentity, seen?.Items, items, ref flows);
 
@@ -350,6 +391,43 @@ namespace SentisWatcher.Recording
                 _recorder.Store.Add(new Row(Table.Inventories, now, now, owner.EntityId, i, gridId == 0 ? null : (object)gridId,
                     ownerIdentity, InventoryCodec.Encode(_stacks), (double)inventory.CurrentVolume, (double)inventory.MaxVolume, flows?.Encode()));
             }
+        }
+
+        /// <summary>
+        /// The last row before the server stops: what the inventory held at the last visit plus the flows since, not
+        /// what it reads - the world is half unloaded then, reactors read empty, and the row of what was not lost
+        /// booked it as lost, the next start's row as come back from nowhere (a player's six reactors, 56.4 kg of
+        /// uranium each, "unexplained" at server_stop 18:00:10 and back 18:01:56 with no flow, prod 08.11.2026).
+        /// </summary>
+        private void Expected(Dictionary<string, long> before, Dictionary<string, long> items, FlowSet flows)
+        {
+            if (before == null) return;
+            var off = LedgerMath.Unexplained(before, items, flows);
+            if (off.Count == 0) return;
+            foreach (var pair in off)
+            {
+                items.TryGetValue(pair.Key, out var was);
+                var expected = was - pair.Value;
+                if (expected <= 0) items.Remove(pair.Key);
+                else items[pair.Key] = expected;
+            }
+            // the row's stacks the same: the gas as read, the items as expected
+            _stacks.RemoveAll(stack => stack.Type != "Gas");
+            foreach (var pair in items)
+            {
+                var slash = pair.Key.IndexOf('/');
+                _stacks.Add(new ItemStack(pair.Key.Substring(0, slash), pair.Key.Substring(slash + 1), pair.Value));
+            }
+        }
+
+        /// <summary>The first visit after a start: what differs from the last run's last row came with the world's load.</summary>
+        private static void BookRestart(Dictionary<string, long> lastRun, Dictionary<string, long> now, ref FlowSet flows)
+        {
+            if (!LedgerPatches.Booking || InventoryLedger.Current == null) return;
+            var differs = LedgerMath.Unexplained(lastRun, now, flows);
+            if (differs.Count == 0) return;
+            if (flows == null) flows = new FlowSet();
+            foreach (var pair in differs) flows.Add("restart", pair.Key, pair.Value);
         }
 
         /// <summary>

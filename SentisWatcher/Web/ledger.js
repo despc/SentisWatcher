@@ -87,6 +87,7 @@ const KINDS = {
   unexplained: 'Необъяснено', script: 'Скрипт сценария', admin: 'Админ', clear: 'Очистка', save: 'Сохранение', async: 'Фоновая загрузка',
   untraced: 'Не определено (слишком часто, чтобы читать стек)',
   untracked: 'До включения учёта',
+  restart: 'Перезапуск сервера (мир загружен из сохранения)',
 };
 function kindLabel(kind, names = {}) {
   if (kind.startsWith('transfer@')) {
