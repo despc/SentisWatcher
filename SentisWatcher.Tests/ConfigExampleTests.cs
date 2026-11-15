@@ -26,6 +26,11 @@ namespace SentisWatcher.Tests
             Assert.Equal(14, example.RetentionDays);
             Assert.Equal(defaults.RetentionDays, example.RetentionDays);
             Assert.True(string.IsNullOrEmpty(example.DatabaseFolder));
+            Assert.Equal(defaults.PublicPort, example.PublicPort);
+            Assert.True(example.PublicBattlesEnabled);
+            Assert.True(defaults.PublicBattlesEnabled);
+            Assert.True(string.IsNullOrEmpty(example.PublicBattlesKeyFile));
+            Assert.Equal(15, example.PublicBattlesDelayMinutes);
         }
     }
 }

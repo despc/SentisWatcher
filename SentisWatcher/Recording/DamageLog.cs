@@ -22,7 +22,7 @@ namespace SentisWatcher.Recording
     /// and target: a turret's burst is one row, not hundreds.
     /// </summary>
     [PatchShim]
-    public static class DamageLog
+    public static partial class DamageLog
     {
         public const long WindowMs = 2000;
 
@@ -30,7 +30,8 @@ namespace SentisWatcher.Recording
 
         private sealed class Aggregate
         {
-            public string Kind, AttackerKind, Weapon, TargetKind, Relation;
+            public string Kind, AttackerKind, Weapon, TargetKind, Relation, AttackerFaction, VictimFaction, Attribution, DamageKey;
+            public int Tracking, EconomyTracking;
             public long Attacker, AttackerEntity, Target, Victim;
             public double Amount;
             public int Count;
@@ -50,7 +51,8 @@ namespace SentisWatcher.Recording
             }
         }
 
-        private static readonly Dictionary<(string, long, long, string, long, long), Aggregate> Open = new Dictionary<(string, long, long, string, long, long), Aggregate>();
+        private static readonly Dictionary<(string, long, long, string, long, long, string, string, string, int, int), Aggregate> Open =
+            new Dictionary<(string, long, long, string, long, long, string, string, string, int, int), Aggregate>();
         private static readonly object Lock = new object();
         private static long _windowStart = -1;
 
@@ -64,21 +66,41 @@ namespace SentisWatcher.Recording
                             ?? throw new MissingMethodException("MyGunBase.Shoot(Vector3D, Vector3, Vector3, MyEntity, uint?, bool)");
                 c.GetPattern(shoot).Suffixes.Add(typeof(DamageLog).GetMethod(nameof(ShootSuffix), BindingFlags.Static | BindingFlags.NonPublic));
             });
+            PatchRounds(ctx);
+            PatchEconomy(ctx);
         }
 
         // ------------------------------------------------------------------ what happens
 
-        private static void ShootSuffix(MyGunBase __instance, Vector3D initialPosition, MyEntity owner) => Recorder.Safe("shot", () =>
+        // every shot of every gun, on the thread of the gun's update (a cluster's with SentisClusters): no lambda for
+        // Recorder.Safe, it would be an allocation a shot
+        private static void ShootSuffix(MyGunBase __instance, Vector3D initialPosition, MyEntity owner)
+        {
+            if (Recorder.Current == null) return;
+            try
+            {
+                Fired(__instance, initialPosition, owner);
+            }
+            catch (Exception e)
+            {
+                Recorder.Failed("shot", e);
+            }
+        }
+
+        private static void Fired(MyGunBase __instance, Vector3D initialPosition, MyEntity owner)
         {
             var user = __instance.User;
             if (user == null) return;
             var weapon = BlockOf(user.Weapon);
+            // a rocket launcher names its grid as the weapon: the block is the gun's user itself
+            if (!(weapon is MyCubeBlock) && !(weapon is MyCharacter) && user is MyCubeBlock self) weapon = self;
             var shooter = BlockOf(owner ?? user.Owner);
-            var attacker = shooter is MyCharacter character ? character.GetPlayerIdentityId() : user.OwnerId != 0 ? user.OwnerId : Identities.OfEntity(weapon);
+            var creditSource = weapon is MyCubeBlock || weapon is MyCharacter ? weapon : shooter ?? weapon;
+            var attacker = Identities.DamageIdentity(creditSource, out var attribution);
             var name = WeaponName(weapon) + "/" + (__instance.CurrentAmmoDefinition?.Id.SubtypeName ?? "?");
             var entity = shooter is MyCubeBlock block ? block.CubeGrid.EntityId : shooter?.EntityId ?? weapon?.EntityId ?? 0;
-            Add(Shot, attacker, KindOf(attacker, shooter), entity, name, 0, "", 0, "", 1, initialPosition);
-        });
+            Add(Shot, attacker, KindOf(attacker, shooter), entity, name, 0, "", 0, "", 1, initialPosition, attribution);
+        }
 
         /// <summary>
         /// Damage that is not recorded at all: the cold and the heat on an animal. Wolves and spiders freeze by the
@@ -88,14 +110,39 @@ namespace SentisWatcher.Recording
         public static bool Skipped(string type, bool animalTarget) => animalTarget && type == "Temperature";
 
         /// <summary>A hit from the damage system (after it was applied): to a block or a character.</summary>
-        public static void Damage(object target, MyDamageInformation info) => Recorder.Safe("damage log", () =>
+        public static void Damage(object target, MyDamageInformation info)
         {
+            if (Recorder.Current == null) return;
+            try
+            {
+                DamageApplied(target, info);
+            }
+            catch (Exception e)
+            {
+                Recorder.Failed("damage log", e);
+            }
+        }
+
+        private static void DamageApplied(object target, MyDamageInformation info)
+        {
+            var economyContext = TakeEconomyContext(target);
             MyEntities.TryGetEntityById(info.AttackerId, out var source);
             source = BlockOf(source);
-            var attacker = Identities.OfEntity(source);
-            var attackerKind = KindOf(attacker, source);
-            var attackerEntity = source is MyCubeBlock block ? block.CubeGrid.EntityId : source?.EntityId ?? 0;
-            var weapon = info.Type.String + ":" + (source is MyCharacter c && Wildlife.IsAnimal(c) ? c.Definition?.Id.SubtypeName : WeaponName(source));
+            var explosion = ExplosionCredit;
+            long attacker;
+            string attribution;
+            // an explosion's blocks (hundreds in one call) take the credit of its launch, not each the shooter's grid again
+            if (explosion != null) { attacker = explosion.Actor; attribution = explosion.Attribution; }
+            else if (info.Type == MyDamageType.Explosion && source is MyCharacter)
+            {
+                // SE can substitute a launcher owner's character. Without a launch context that is not proof of firing.
+                attacker = 0; attribution = "unknown";
+            }
+            else attacker = Identities.DamageIdentity(source, out attribution, Identities.PilotOfHitMs);
+            var attackerKind = explosion?.Kind ?? KindOf(attacker, source);
+            var attackerEntity = explosion?.Grid ?? (source is MyCubeBlock block ? block.CubeGrid.EntityId : source?.EntityId ?? 0);
+            var weapon = explosion != null ? explosion.HitWeapon(info.Type) : info.Type.String + ":" +
+                (source is MyCharacter c && Wildlife.IsAnimal(c) ? c.Definition?.Id.SubtypeName : WeaponName(source));
             switch (target)
             {
                 case IMySlimBlock slim:
@@ -104,9 +151,11 @@ namespace SentisWatcher.Recording
                     var victim = slim.OwnerId != 0 ? slim.OwnerId : Identities.Owner(grid);
                     var at = grid.GridIntegerToWorld(slim.Position);
                     var relation = Relation(attacker, attackerKind, victim, false);
-                    Add(info.Type == MyDamageType.Grind ? Grind : Hit, attacker, attackerKind, attackerEntity, weapon, grid.EntityId, "block", victim, relation, info.Amount, at);
+                    var damageKey = Add(info.Type == MyDamageType.Grind ? Grind : Hit, attacker, attackerKind, attackerEntity, weapon, grid.EntityId, "block", victim, relation, info.Amount, at, attribution,
+                        economyCoverage: economyContext != null ? EconomyTracking : 0);
+                    CompleteEconomyContext(economyContext, damageKey, info.Amount <= 0);
                     if (slim.IsDestroyed || slim.Integrity <= 0)
-                        Add(Destroyed, attacker, attackerKind, attackerEntity, weapon, grid.EntityId, "block", victim, relation, 1, at);
+                        Add(Destroyed, attacker, attackerKind, attackerEntity, weapon, grid.EntityId, "block", victim, relation, 1, at, attribution);
                     break;
                 }
                 case MyCharacter character:
@@ -116,13 +165,13 @@ namespace SentisWatcher.Recording
                     var at = character.PositionComp.GetPosition();
                     var targetKind = animal ? "animal" : "character";
                     var relation = Relation(attacker, attackerKind, victim, animal);
-                    Add(Hit, attacker, attackerKind, attackerEntity, weapon, character.EntityId, targetKind, victim, relation, info.Amount, at);
+                    Add(Hit, attacker, attackerKind, attackerEntity, weapon, character.EntityId, targetKind, victim, relation, info.Amount, at, attribution);
                     if ((character.IsDead || (character.StatComp?.Health?.Value ?? 1) <= 0) && FirstDeath(character.EntityId))
-                        Add(Kill, attacker, attackerKind, attackerEntity, weapon, character.EntityId, targetKind, victim, relation, 1, at);
+                        Add(Kill, attacker, attackerKind, attackerEntity, weapon, character.EntityId, targetKind, victim, relation, 1, at, attribution);
                     break;
                 }
             }
-        });
+        }
 
         // ------------------------------------------------------------------ who and what
 
@@ -171,39 +220,57 @@ namespace SentisWatcher.Recording
             switch (entity)
             {
                 case null: return "?";
-                case MyCubeBlock block: return block.BlockDefinition.Id.SubtypeName;
+                case MyCubeBlock block: return string.IsNullOrEmpty(block.BlockDefinition.Id.SubtypeName)
+                    ? block.BlockDefinition.Id.TypeId.ToString().Replace("MyObjectBuilder_", "") : block.BlockDefinition.Id.SubtypeName;
                 case MyCharacter character: return character.Definition?.Id.SubtypeName ?? "character";
                 case MyCubeGrid _: return "grid";
                 default: return entity.DefinitionId?.SubtypeName ?? entity.GetType().Name;
             }
         }
 
+        // null: unavailable; empty: explicitly no faction. Never resolve historical factions from the live world.
+        private static string FactionAt(long identity)
+        {
+            var factions = MySession.Static?.Factions;
+            if (factions == null) return null;
+            var faction = factions.TryGetPlayerFaction(identity);
+            return faction == null ? "" : faction.FactionId + "|[" + faction.Tag + "] " + faction.Name;
+        }
+
         // ------------------------------------------------------------------ the rows
 
-        private static void Add(string kind, long attacker, string attackerKind, long attackerEntity, string weapon, long target, string targetKind,
-                                long victim, string relation, double amount, Vector3D at)
+        private static string Add(string kind, long attacker, string attackerKind, long attackerEntity, string weapon, long target, string targetKind,
+                                long victim, string relation, double amount, Vector3D at, string attribution = null,
+                                bool factionSnapshot = false, string recordedFaction = null, int? economyCoverage = null)
         {
             var now = Clock.Now;
+            var af = factionSnapshot ? recordedFaction : FactionAt(attacker);
+            var vf = FactionAt(victim);
+            var tracking = RoundTracking;
+            var coverage = economyCoverage ?? EconomyTracking;
             lock (Lock)
             {
                 if (_windowStart < 0) _windowStart = now;
-                var key = (kind, attacker, attackerEntity, weapon, target, victim);
+                var key = (kind, attacker, attackerEntity, weapon, target, victim, af, vf, attribution, tracking, coverage);
                 if (!Open.TryGetValue(key, out var a))
                     Open[key] = a = new Aggregate
                     {
                         Kind = kind, Attacker = attacker, AttackerKind = attackerKind, AttackerEntity = attackerEntity, Weapon = weapon,
                         Target = target, TargetKind = targetKind, Victim = victim, Relation = relation,
+                        AttackerFaction = af, VictimFaction = vf, Attribution = attribution, Tracking = tracking, EconomyTracking = coverage, DamageKey = kind == Hit && targetKind == "block" ? Guid.NewGuid().ToString("N") : null,
                     };
                 a.Amount += amount;
                 a.Count++;
                 a.Last = now;
                 a.Position = at;
+                return a.DamageKey;
             }
         }
 
         /// <summary>The rows of the window that ended (all of them when forced); game thread, every frame.</summary>
         public static void Flush(Recorder recorder, bool force = false)
         {
+            Identities.PruneCrews();
             List<Aggregate> done;
             lock (Lock)
             {
@@ -214,7 +281,7 @@ namespace SentisWatcher.Recording
             }
             foreach (var a in done)
                 recorder.Store.Add(new Row(Table.Damage, a.Last, a.Last, a.Kind, a.Attacker, a.AttackerKind, a.AttackerEntity, a.Weapon,
-                    a.Target, a.TargetKind, a.Victim, a.Relation, a.Amount, a.Count, a.Position.X, a.Position.Y, a.Position.Z));
+                    a.Target, a.TargetKind, a.Victim, a.Relation, a.Amount, a.Count, a.Position.X, a.Position.Y, a.Position.Z, a.AttackerFaction, a.VictimFaction, a.Attribution, a.Tracking, Math.Min(a.EconomyTracking, EconomyTracking), a.DamageKey));
         }
     }
 }

@@ -1,0 +1,40 @@
+.battles .battle-layout { display:grid; grid-template-columns:340px minmax(0,1fr); gap:14px; align-items:start; }
+.battles main { overflow:auto; }
+.battles .board { width:100%; box-sizing:border-box; }
+.battles #economy .section-heading { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; }
+.battles #economy select { max-width:100%; }
+.battles #economy tfoot { font-weight:bold; }
+.battles #economy th:not(:first-child), .battles #economy td:not(:first-child) { text-align:right; }
+.battles #economy .small { font-size:12px; margin:10px 0; }
+.battles .panel { min-width:0; }
+.battles h2 { margin:0 0 12px; font-size:18px; }
+.battles h3 { margin-top:22px; }
+.battles #search { width:100%; box-sizing:border-box; margin-bottom:10px; }
+.battles #battleList { max-height:72vh; overflow:auto; margin-top:12px; }
+.battles .battle { display:block; width:100%; text-align:left; white-space:normal; padding:12px; margin-bottom:8px; border:1px solid #323b49; border-radius:6px; background:#1b222e; color:#d8dee9; cursor:pointer; }
+.battles .battle.selected { border-color:#5fb3f9; background:#23344a; }
+.battles .battle span { display:block; margin-top:5px; }
+.battles .battle small { color:#9ba8bb; }
+.battles .table-scroll { overflow:auto; max-height:58vh; }
+.battles .load td { white-space:normal; }
+.battles .load .n { white-space:nowrap; }
+.battles .load small { display:block; color:#9ba8bb; }
+.battles .warn { color:#f5b041; }
+.battles .report-tools { display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin:12px 0; }
+.battles .battle-chart { width:100%; min-width:0; }
+.battles #battleTimeline { width:100%; height:240px; background:#171d26; display:block; overflow:visible; cursor:crosshair; }
+.battles #battleTimeline text { fill:#a7b5c8; font:11px Consolas, monospace; }
+.battles #battleTimeline [tabindex]:focus { outline:1px solid #f5b041; }
+.battles .battle-chart-tip { position:fixed; z-index:1000; pointer-events:none; white-space:pre-line; background:#0e1520; color:#e0e8f5; border:1px solid #5b6c85; border-radius:5px; padding:10px 12px; max-width:min(420px, calc(100vw - 40px)); box-shadow:0 3px 15px #0008; font-size:12px; }
+.battles .battle-chart-legend { display:flex; flex-wrap:wrap; gap:16px; margin:8px 0; font-size:12px; color:#a7b5c8; }
+.battles .battle-chart-legend i { display:inline-block; width:10px; height:10px; margin-right:5px; }
+.battles .battle-chart-legend .combat { background:#5fb3f9; }
+.battles .battle-chart-legend .context { background:#687d91; }
+.battles .battle-chart-legend .jump { background:#c39bd3; transform:rotate(45deg); }
+.battles .person { cursor:pointer; }
+.battles .person:hover { background:#23344a; }
+.battles summary { cursor:pointer; }
+.battles details p { max-width:1200px; line-height:1.5; }
+@media(max-width:1050px) { .battles .battle-layout { grid-template-columns:1fr; } .battles #battleList { max-height:35vh; } }
+#economy h3{margin-bottom:12px}#economy .small{margin:10px 0}
+#economy .economy-matrix th,#economy .economy-matrix td{min-width:150px;text-align:right}#economy .economy-matrix th:first-child{min-width:200px;text-align:left;position:sticky;left:0;background:#0b1219;z-index:1}#economy .economy-matrix thead th{white-space:normal;overflow-wrap:anywhere;vertical-align:top}#economy .economy-matrix thead small{display:block;font-weight:400}#economy .economy-matrix tbody th{white-space:normal;font-size:13px;font-weight:400;border-top:0;border-bottom:1px solid #738a9c44}#economy .economy-matrix tfoot th,#economy .economy-matrix tfoot td{font-weight:700;background:#15232d;white-space:nowrap}

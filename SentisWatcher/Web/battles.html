@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>SentisWatcher — Сражения</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="perf.css">
+  <link rel="stylesheet" href="damage.css">
+  <link rel="stylesheet" href="battles.css">
+</head>
+<body class="perf damage battles">
+  <header>
+    <div class="brand">SentisWatcher</div>
+    <nav class="pages"><a href="index.html">Карта</a><a href="ledger.html">Инвентари</a><a href="perf.html">Производительность</a><a href="structures.html">Структуры</a><a href="damage.html">Урон</a><a class="here">Сражения</a></nav>
+    <label>с <input id="from" type="datetime-local" step="1"></label>
+    <label>по <input id="to" type="datetime-local" step="1"></label>
+    <span id="zone" class="utc"></span>
+    <label>День БД <select id="day"><option value="">выбрать…</option></select></label>
+    <button id="lastDay">Последние сутки</button>
+    <span class="utc">Границы автоматически · 2 минуты без урона — бой окончен</span>
+    <label><input id="live" type="checkbox"> обновлять каждые 10 с</label>
+    <button id="reload">Найти сражения</button>
+    <div id="status" class="status" role="status"></div>
+  </header>
+  <main><section class="board">
+    <details class="panel"><summary>Как определяются сражения и что означают итоги</summary>
+      <p>Бой начинается с урона или вражеского распила по врагу либо нейтралу (без зверей). Пока продолжается связанный урон, бой продлевается. Через 2 минуты тишины он считается завершённым; последняя точка урона и момент завершения показаны отдельно. Попадания объединяются по месту (до 5 км), чтобы не склеивать бои на разных концах мира.</p>
+      <p>Связанный сопутствующий урон участникам и их объектам тоже продлевает бой, даже если источник неизвестен. Собственный распил, погода, выстрелы без цели, убийства и разрушения без нового урона не продлевают его. Неоднозначное событие не приписывается двум боям. Фракция — на момент записи, «неизвестна» в старой БД не означает «без фракции».</p>
+      <p>Выбранный интервал (до 7 суток) только отбирает бои. Полные границы находятся автоматически, в том числе в соседних суточных БД. Защитный предел поиска — 31 сутки; при его достижении будет предупреждение. Время событий свёрнуто за 2 секунды. Имена объектов — последние известные за день. Победитель и стоимость потерь не вычисляются.</p>
+    </details>
+    <div class="battle-layout">
+      <aside class="panel">
+        <h2>Сражения <span id="count" class="dim"></span></h2>
+        <input id="search" type="search" placeholder="Участник, фракция, оружие" aria-label="Поиск сражения">
+        <label>Порядок <select id="sort"><option value="damage">по урону</option><option value="time">сначала новые</option></select></label>
+        <div id="battleList"></div>
+      </aside>
+      <article id="report" class="panel"><h2>Итоги боя</h2><p class="dim">Выберите сражение слева.</p></article>
+    </div>
+  </section></main>
+  <script type="module" src="battles.js"></script>
+</body>
+</html>

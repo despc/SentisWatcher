@@ -15,4 +15,17 @@
        только с этой машины. Изменение — со следующего старта. -->
   <WebEnabled>true</WebEnabled>
   <WebPort>18950</WebPort>
+
+  <!-- Публичная статистика: /online, /perf. 0 — выключено. -->
+  <PublicPort>0</PublicPort>
+  <PublicOrigin>*</PublicOrigin>
+
+  <!-- Защищённый REST сражений на том же PublicPort: только с этой машины (сайт здесь же или локальный HTTPS
+       reverse proxy), с Bearer-ключом на БЭКЕНДЕ сайта, не в браузере. По умолчанию включён. -->
+  <PublicBattlesEnabled>true</PublicBattlesEnabled>
+  <!-- Абсолютный путь к приватному UTF-8 файлу ключа. Сам ключ в конфиг не помещать. Пусто — Instance\SentisWatcher-Secrets\battles.key,
+       Watcher создаёт его при первом старте (доступ: учётка Torch, SYSTEM, администраторы). -->
+  <PublicBattlesKeyFile />
+  <!-- Задержка после завершения боя: минимум 5, по умолчанию 15 минут. -->
+  <PublicBattlesDelayMinutes>15</PublicBattlesDelayMinutes>
 </WatcherConfig>

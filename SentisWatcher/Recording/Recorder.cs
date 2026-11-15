@@ -70,6 +70,7 @@ namespace SentisWatcher.Recording
         /// <summary>Writes the aggregates of the window that ended (game thread, every frame).</summary>
         public void FlushAggregates(bool force = false)
         {
+            DamageLog.FlushEconomy(this, force);
             DamageLog.Flush(this, force);
             ConveyorLog.Flush(this, force);
             var done = Aggregator.Take(Clock.Now, force);
@@ -99,6 +100,12 @@ namespace SentisWatcher.Recording
             var sun = Sandbox.Game.World.MySector.DirectionToSunNormalized;
             Store.Add(new Row(Table.Meta, now, "sun", string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0},{1},{2}", sun.X, sun.Y, sun.Z)));
         }
+
+        /// <summary>
+        /// What <see cref="Safe"/> does with an exception, for the hooks called by the shot and by the block: they check
+        /// <see cref="Current"/> and catch themselves, as a lambda for Safe is an allocation on every call.
+        /// </summary>
+        public static void Failed(string what, Exception e) => Log.Error(e, "SentisWatcher: " + what + " failed");
 
         public static void Safe(string what, Action action)
         {

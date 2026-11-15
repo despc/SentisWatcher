@@ -44,6 +44,8 @@ namespace SentisWatcher.Recording
             if (!_damageRegistered)
             {
                 // cannot be unregistered: it does nothing while nothing is recorded
+                MyAPIGateway.Session.DamageSystem.RegisterBeforeDamageHandler(int.MaxValue, DamageLog.EconomyTouch);
+                DamageLog.EconomyObserverRegistered();
                 MyAPIGateway.Session.DamageSystem.RegisterAfterDamageHandler(int.MaxValue, OnDamage);
                 _damageRegistered = true;
             }

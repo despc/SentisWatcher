@@ -18,6 +18,20 @@ namespace SentisWatcher.Storage
         Spikes,
         Damage,
         Hydrogen,
+        BlockEconomy,
+    }
+
+    /// <summary>
+    /// A row's value written as JSON, made by the writer's thread: the game thread queues the value (nothing may
+    /// change it after) and does not spend its frame on the text (a battle's block losses, thousands of rows at once).
+    /// </summary>
+    public sealed class LateJson
+    {
+        public readonly object Value;
+
+        public LateJson(object value) => Value = value;
+
+        public string Text() => Newtonsoft.Json.JsonConvert.SerializeObject(Value);
     }
 
     /// <summary>
@@ -60,7 +74,8 @@ namespace SentisWatcher.Storage
                 case Table.Perf: return new[] { "t", "frames", "frame", "frame_max", "physics", "physics_max", "gc0", "gc1", "gc2", "gc_time", "managed_mb", "private_mb", "working_mb", "sim", "players", "blocks", "components", "grids" };
                 case Table.Load: return new[] { "t", "kind", "entity", "name", "owner", "owner_name", "frames", "ms", "max_ms", "alloc_kb", "count" };
                 case Table.Spikes: return new[] { "t", "frame_ms", "gc0", "gc1", "gc2", "untimed_ms", "top" };
-                case Table.Damage: return new[] { "t", "kind", "attacker", "attacker_kind", "attacker_entity", "weapon", "target", "target_kind", "victim", "relation", "amount", "count", "x", "y", "z" };
+                case Table.Damage: return new[] { "t", "kind", "attacker", "attacker_kind", "attacker_entity", "weapon", "target", "target_kind", "victim", "relation", "amount", "count", "x", "y", "z", "attacker_faction", "victim_faction", "attribution", "shot_tracking", "economy_tracking", "damage_key" };
+                case Table.BlockEconomy: return new[] { "t", "first_t", "block_token", "grid", "owner", "faction", "definition", "before_integrity", "after_integrity", "destroyed", "components", "x", "y", "z", "tracking", "damage_keys", "damaged" };
                 case Table.Hydrogen: return new[] { "t", "grid", "name", "stored", "capacity", "buffer", "produced", "consumed", "tank_in", "tank_out", "frozen", "blocks" };
                 default: throw new ArgumentOutOfRangeException(nameof(table));
             }
@@ -83,6 +98,7 @@ namespace SentisWatcher.Storage
                 case Table.Spikes: return "spikes";
                 case Table.Damage: return "damage";
                 case Table.Hydrogen: return "hydrogen";
+                case Table.BlockEconomy: return "block_economy";
                 default: throw new ArgumentOutOfRangeException(nameof(table));
             }
         }

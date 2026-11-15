@@ -31,7 +31,7 @@ namespace SentisWatcher.Storage
                 {
                     if (!HasTable(db, "damage")) continue;
                     using (var cmd = Command(db, "SELECT t, kind, attacker, attacker_kind, attacker_entity, weapon, target, target_kind, victim, relation, amount, count, x, y, z " +
-                                                 "FROM damage WHERE t BETWEEN @a AND @b ORDER BY t", ("@a", from), ("@b", to)))
+                                                 "FROM damage WHERE t BETWEEN @a AND @b AND kind IN ('hit','grind','shot','destroyed','kill') ORDER BY t", ("@a", from), ("@b", to)))
                     using (var r = cmd.ExecuteReader())
                         while (r.Read())
                             rows.Add(new DamageRow
@@ -130,7 +130,7 @@ namespace SentisWatcher.Storage
         }
 
         /// <summary>Names of ids (players, grids) as the day files have them, else as the game has them now.</summary>
-        private Dictionary<long, string> Names(long from, long to, List<long> ids)
+        private Dictionary<long, string> Names(long from, long to, List<long> ids, bool resolveLive = true)
         {
             var names = new Dictionary<long, string>();
             if (ids.Count == 0) return names;
@@ -147,7 +147,7 @@ namespace SentisWatcher.Storage
             // the rest as the game has them now - asked on the game thread (the game's collections are not to be read from
             // the web server's thread); the game not answering leaves them as numbers
             var missing = ids.Where(id => !names.ContainsKey(id)).Take(2000).ToList();
-            if (missing.Count > 0)
+            if (resolveLive && missing.Count > 0)
                 try
                 {
                     foreach (var p in Http.Live.Names(missing)) names[p.Key] = p.Value;

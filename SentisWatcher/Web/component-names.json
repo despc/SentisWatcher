@@ -1,0 +1,134 @@
+{
+  "BulletproofGlass": {
+    "en": "Bulletproof Glass",
+    "ru": "Бронированное стекло"
+  },
+  "Canvas": {
+    "en": "Parachute Canvas",
+    "ru": "Полотно для парашютов"
+  },
+  "Computer": {
+    "en": "Computer",
+    "ru": "Компьютер"
+  },
+  "Construction": {
+    "en": "Construction Comp.",
+    "ru": "Строительные компоненты"
+  },
+  "Detector": {
+    "en": "Detector Comp.",
+    "ru": "Компоненты детектора"
+  },
+  "Display": {
+    "en": "Display",
+    "ru": "Экран"
+  },
+  "EngineerPlushie": {
+    "en": "Engineer Plushie",
+    "ru": "Мягкая игрушка инженера"
+  },
+  "EngineerPlushieSE2": {
+    "en": "Almagest Engineer Plushie",
+    "ru": "Плюшевая игрушка — инженер Альмагеста"
+  },
+  "Explosives": {
+    "en": "Explosives",
+    "ru": "Взрывчатка"
+  },
+  "Girder": {
+    "en": "Girder",
+    "ru": "Балка"
+  },
+  "GravityGenerator": {
+    "en": "Gravity Comp.",
+    "ru": "Компоненты гравитационного генератора"
+  },
+  "InteriorPlate": {
+    "en": "Interior Plate",
+    "ru": "Внутренняя пластина"
+  },
+  "LargeTube": {
+    "en": "Large Steel Tube",
+    "ru": "Большая стальная труба"
+  },
+  "Medical": {
+    "en": "Medical Comp.",
+    "ru": "Медицинские компоненты"
+  },
+  "MetalGrid": {
+    "en": "Metal Grid",
+    "ru": "Компонент решётки"
+  },
+  "Motor": {
+    "en": "Motor",
+    "ru": "Мотор"
+  },
+  "PowerCell": {
+    "en": "Power Cell",
+    "ru": "Энергоячейка"
+  },
+  "PrototechCapacitor": {
+    "en": "Prototech Capacitor",
+    "ru": "Прототех-конденсатор"
+  },
+  "PrototechCircuitry": {
+    "en": "Prototech Circuitry",
+    "ru": "Прототех-схема"
+  },
+  "PrototechCoolingUnit": {
+    "en": "Prototech Cooling Unit",
+    "ru": "Прототех-охладитель"
+  },
+  "PrototechFrame": {
+    "en": "Prototech Frame",
+    "ru": "Прототех-рама"
+  },
+  "PrototechMachinery": {
+    "en": "Prototech Machinery",
+    "ru": "Прототех-механизм"
+  },
+  "PrototechPanel": {
+    "en": "Prototech Panel",
+    "ru": "Прототех-панель"
+  },
+  "PrototechPropulsionUnit": {
+    "en": "Prototech Propulsion Unit",
+    "ru": "Двигательный прототех-модуль"
+  },
+  "RadioCommunication": {
+    "en": "Radio-comm Comp.",
+    "ru": "Радиокомпоненты"
+  },
+  "Reactor": {
+    "en": "Reactor Comp.",
+    "ru": "Компоненты реактора"
+  },
+  "SabiroidPlushie": {
+    "en": "Sabiroid Plushie",
+    "ru": "Плюшевый сабироид"
+  },
+  "SmallTube": {
+    "en": "Small Steel Tube",
+    "ru": "Малая трубка"
+  },
+  "SolarCell": {
+    "en": "Solar Cell",
+    "ru": "Солнечная ячейка"
+  },
+  "SteelPlate": {
+    "en": "Steel Plate",
+    "ru": "Стальная пластина"
+  },
+  "Superconductor": {
+    "en": "Superconductor",
+    "ru": "Сверхпроводник"
+  },
+  "Thrust": {
+    "en": "Thruster Comp.",
+    "ru": "Детали ионного ускорителя"
+  },
+  "ZoneChip": {
+    "en": "Zone Chip",
+    "ru": "Ключ безопасности"
+  }
+}

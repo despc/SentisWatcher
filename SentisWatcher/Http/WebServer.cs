@@ -250,6 +250,7 @@ namespace SentisWatcher.Web
                 case "ledger": return _data.Ledger(q["kind"], L("id"), from, to);
                 case "anomalies": return _data.Anomalies(from, to);
                 case "perf": return _data.Perf(from, to, (int)L("points", 1500));
+                case "battles": return _data.Battles(from, to, (int)L("gap", 120), (int)L("radius", 5000), q["battle"]);
                 case "damage": return _data.Damage(from, to, q["relation"] ?? "enemy", (int)L("buckets", 200), (int)L("recent", 300), L("attacker"), L("victim"));
                 case "load": return _data.Load(from, to, (int)Math.Min(L("top", 100), 1000));
                 case "loadseries": return _data.LoadSeries(from, to, q["kind"], (int)Math.Min(L("top", 8), 60));
@@ -275,6 +276,7 @@ namespace SentisWatcher.Web
             {
                 case ".html": return "text/html; charset=utf-8";
                 case ".js": return "text/javascript; charset=utf-8";
+                case ".json": return "application/json; charset=utf-8";
                 case ".css": return "text/css; charset=utf-8";
                 case ".txt": return "text/plain; charset=utf-8";
                 case ".svg": return "image/svg+xml";

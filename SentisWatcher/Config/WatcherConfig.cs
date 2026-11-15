@@ -81,7 +81,8 @@ namespace SentisWatcher.Config
         [DisplayTab(Name = "Public stats port", GroupName = "Public stats", Tab = "Web view", Order = 10,
             Description = "A port for the server's public site to read who is online (/online) and the load of the simulation " +
                           "thread and the simulation speed (/perf?hours=3, up to 24) as JSON. Only names, faction tags and the " +
-                          "charts go out - no positions, grids or inventories. Listens on every address of the machine once the " +
+                          "charts go out - no positions, grids or inventories. Optional protected battle reports use this port too, " +
+                          "but only through a local TLS reverse proxy and a backend API key. Listens on every address of the machine once the " +
                           "address is reserved (netsh http add urlacl url=http://+:<port>/, the log says the command), else on " +
                           "127.0.0.1. 0 is off. Takes effect at the next server start.")]
         public int PublicPort
@@ -97,6 +98,41 @@ namespace SentisWatcher.Config
         {
             get => _publicOrigin;
             set => SetValue(ref _publicOrigin, value);
+        }
+
+        private bool _publicBattlesEnabled = true;
+        private string _publicBattlesKeyFile = "";
+        private int _publicBattlesDelayMinutes = 15;
+
+        [DisplayTab(Name = "Publish battle reports", GroupName = "Battle REST API", Tab = "Web view", Order = 12,
+            Description = "Enable GET /battles and /battles/<id> on the public stats port (on by default). Requires a private key file: " +
+                          "with no file named below, one is made at the first start in Instance\\SentisWatcher-Secrets\\battles.key. " +
+                          "Only loopback callers (the site on this machine, or a local TLS reverse proxy) are accepted; the website backend holds the key, never the browser. " +
+                          "Only delayed, completed, sanitized reports are published. Takes effect after restart.")]
+        public bool PublicBattlesEnabled
+        {
+            get => _publicBattlesEnabled;
+            set => SetValue(ref _publicBattlesEnabled, value);
+        }
+
+        [DisplayTab(Name = "Battle API key file", GroupName = "Battle REST API", Tab = "Web view", Order = 13,
+            Description = "Absolute path to a private UTF-8 file with a random 32-256 character ASCII bearer token. Empty: " +
+                          "Instance\\SentisWatcher-Secrets\\battles.key, made at the first start if missing (this account, SYSTEM, administrators). " +
+                          "Keep outside web roots; restrict file access to the Torch account and administrators. " +
+                          "The token itself is never shown here. Empty/unreadable/invalid: fail closed. Read once after restart.")]
+        public string PublicBattlesKeyFile
+        {
+            get => _publicBattlesKeyFile;
+            set => SetValue(ref _publicBattlesKeyFile, value);
+        }
+
+        [DisplayTab(Name = "Battle publication delay (minutes)", GroupName = "Battle REST API", Tab = "Web view", Order = 14,
+            Description = "Wait this long AFTER the two-minute battle closure before publication. Default 15, minimum 5, maximum 1440. " +
+                          "No live battles, coordinates, internal entity/identity/Steam IDs or real grid names are exposed. Takes effect after restart.")]
+        public int PublicBattlesDelayMinutes
+        {
+            get => _publicBattlesDelayMinutes;
+            set => SetValue(ref _publicBattlesDelayMinutes, value);
         }
 
         private bool _loadSampling = true;

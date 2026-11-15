@@ -154,7 +154,16 @@ namespace SentisWatcher.Storage
             var command = _inserts[row.Table];
             var parameters = command.Parameters;
             // a row may leave out the last columns: they are NULL, not what the previous row had
-            for (var c = 0; c < parameters.Count; c++) parameters[c].Value = c < row.Values.Length ? row.Values[c] ?? DBNull.Value : DBNull.Value;
+            for (var c = 0; c < parameters.Count; c++)
+            {
+                var value = c < row.Values.Length ? row.Values[c] : null;
+                if (value is LateJson late)
+                {
+                    try { value = late.Text(); }
+                    catch (Exception e) { value = null; Log.Error(e, "SentisWatcher: a row's JSON (" + row.Table + ") could not be made"); }
+                }
+                parameters[c].Value = value ?? DBNull.Value;
+            }
             command.ExecuteNonQuery();
         }
 

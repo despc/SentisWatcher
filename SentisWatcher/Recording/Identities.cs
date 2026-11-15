@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Concurrent;
 using System.Linq;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Character;
@@ -72,6 +74,93 @@ namespace SentisWatcher.Recording
             var identity = controller?.Player?.Identity?.IdentityId;
             return identity is long id && id != 0 ? id : (long?)null;
         }
+
+        /// <summary>A grid's pilot this old is asked again when it shoots (<see cref="DamageIdentity"/>).</summary>
+        internal const long PilotFreshMs = 1000;
+
+        /// <summary>
+        /// A hit reaches its target after its shot (a bullet flies seconds): the pilot of the shooter's grid known that
+        /// long is the one who fired, and the hit takes it without asking the grid.
+        /// </summary>
+        internal const long PilotOfHitMs = 30000;
+
+        private sealed class Crew
+        {
+            public long Pilot, At;
+        }
+
+        // grid id -> its pilot when last asked; any thread (the clusters' shoot and damage in theirs)
+        private static readonly ConcurrentDictionary<long, Crew> Crews = new ConcurrentDictionary<long, Crew>();
+        private static long _crewsPruned;
+
+        /// <summary>
+        /// Combat credit: occupied controlling/main cockpit, otherwise the firing block's builder. Never its owner.
+        /// The grid's pilot is kept for <paramref name="freshMs"/>: every shot and every hit ask it, and a grid nobody
+        /// controls was asked by walking its seats.
+        /// </summary>
+        internal static long DamageIdentity(MyEntity entity, out string attribution, long freshMs = PilotFreshMs)
+        {
+            var grid = (entity as MyCubeBlock)?.CubeGrid ?? entity as MyCubeGrid;
+            if (grid != null)
+            {
+                var pilot = PilotOf(grid, freshMs);
+                var builder = (entity as MyCubeBlock)?.BuiltBy ?? 0;
+                attribution = pilot != 0 ? "cockpit" : builder != 0 ? "builder" : "unknown";
+                return CombatCredit.Select(pilot, builder);
+            }
+            var identity = OfEntity(entity);
+            attribution = identity != 0 ? "character" : "unknown";
+            return identity;
+        }
+
+        private static long PilotOf(MyCubeGrid grid, long freshMs)
+        {
+            var now = Storage.Clock.Now;
+            Crews.TryGetValue(grid.EntityId, out var known);
+            if (known != null && now - known.At <= freshMs && now >= known.At) return known.Pilot;
+            long pilot;
+            try
+            {
+                pilot = AskPilot(grid);
+            }
+            catch (InvalidOperationException) when (known != null)
+            {
+                // a seat taken or left on another thread while its set was read: the last answer
+                return known.Pilot;
+            }
+            Crews[grid.EntityId] = new Crew { Pilot = pilot, At = now };
+            return pilot;
+        }
+
+        /// <summary>The pilot of the controlling cockpit, else of the occupied seat (main first, then the lowest id).</summary>
+        private static long AskPilot(MyCubeGrid grid)
+        {
+            var controlled = grid.GridSystems?.ControlSystem?.GetController()?.ControlledEntity as MyCockpit;
+            if (controlled?.Pilot != null) return controlled.Pilot.GetPlayerIdentityId();
+            // the grid's own set of seats with someone in them (MyCockpit registers itself as its pilot sits and leaves):
+            // its few seats, not all of its blocks
+            MyCockpit best = null;
+            foreach (var seat in grid.OccupiedBlocks)
+            {
+                if (seat?.Pilot == null) continue;
+                if (best == null || seat.IsMainCockpit && !best.IsMainCockpit ||
+                    seat.IsMainCockpit == best.IsMainCockpit && seat.EntityId < best.EntityId)
+                    best = seat;
+            }
+            return best?.Pilot?.GetPlayerIdentityId() ?? 0;
+        }
+
+        /// <summary>The grids' pilots not asked for a minute forgotten (closed grids among them). Game thread, every frame.</summary>
+        internal static void PruneCrews()
+        {
+            var now = Storage.Clock.Now;
+            if (now - _crewsPruned < 60000) return;
+            _crewsPruned = now;
+            foreach (var pair in Crews)
+                if (now - pair.Value.At > 60000) Crews.TryRemove(pair.Key, out _);
+        }
+
+        internal static void ResetCrews() => Crews.Clear();
 
         /// <summary>The player's name, or the id.</summary>
         public static string NameOf(long identityId)

@@ -8,14 +8,15 @@ using System.Threading;
 using Newtonsoft.Json;
 using NLog;
 using SentisWatcher.Storage;
+using SentisWatcher.Config;
 
 namespace SentisWatcher.Web
 {
     /// <summary>
     /// What the server's public site may show (a page outside, on the internet): who is online, and the server's load and
-    /// simulation speed lately - on a port of its own, every address of the machine, nothing else of the records. Only
-    /// names and faction tags go out: no positions, grids, identities or inventories (the web view has those, and stays
-    /// local). Answers are kept for a while (online 10 s, the charts a minute), so asking often costs the game nothing more.
+    /// simulation speed lately - on a port of its own. Optional battle reports use a separate authenticated loopback
+    /// route and an explicit publication whitelist, never the private records API. No positions, internal identities,
+    /// grid names or inventories are published. Stats are cached (online 10 s, charts a minute).
     /// </summary>
     public sealed class PublicServer : IDisposable
     {
@@ -27,15 +28,36 @@ namespace SentisWatcher.Web
         private readonly HttpListener _listener = new HttpListener();
         private readonly WebData _data;
         private readonly string _origin;
+        private readonly PublicBattleApi _battles;
         private Thread _thread;
 
         public int Port { get; }
 
-        private PublicServer(WatcherStore store, int port, string origin, bool everywhere)
+        private PublicServer(WatcherStore store, int port, string origin, bool everywhere, WatcherConfig config, string instance)
         {
             Port = port;
             _origin = string.IsNullOrWhiteSpace(origin) ? "*" : origin.Trim();
             _data = new WebData(store);
+            var enabled = config?.PublicBattlesEnabled == true;
+            string key = null;
+            if (enabled)
+            {
+                // no file named: the instance's own, made at the first start (the site's deploy script takes it from there)
+                var keyFile = string.IsNullOrWhiteSpace(config.PublicBattlesKeyFile) && !string.IsNullOrEmpty(instance)
+                    ? PublicBattleApi.DefaultKeyFile(instance) : config.PublicBattlesKeyFile;
+                try
+                {
+                    if (string.IsNullOrWhiteSpace(config.PublicBattlesKeyFile) && PublicBattleApi.EnsureKeyFile(keyFile))
+                        Log.Info("SentisWatcher: a key for the battle reports made in " + keyFile + " (readable by this account, SYSTEM and administrators)");
+                }
+                catch (Exception e)
+                {
+                    Log.Error("SentisWatcher: the battle reports' key file could not be made in " + keyFile + ": " + e.GetType().Name);
+                }
+                key = PublicBattleApi.ReadKeyFile(keyFile);
+            }
+            _battles = new PublicBattleApi((from, to, id) => _data.Battles(from, to, battle: id), enabled, key, config?.PublicBattlesDelayMinutes ?? 15);
+            if (enabled && !_battles.Ready) Log.Error("SentisWatcher: protected battle publication unavailable; configure a readable private key file (32-256 ASCII characters). No battles will be served.");
             _listener.Prefixes.Add(everywhere ? "http://+:" + port + "/" : "http://127.0.0.1:" + port + "/");
         }
 
@@ -44,9 +66,11 @@ namespace SentisWatcher.Web
         /// the web view on the network), else on 127.0.0.1 with the command to run in the log - a site on this machine, or
         /// behind a proxy here, reaches it there too.
         /// </summary>
-        public static PublicServer StartFor(WatcherStore store, int port, string origin)
+        public static PublicServer StartFor(WatcherStore store, int port, string origin) => StartFor(store, port, origin, null);
+
+        public static PublicServer StartFor(WatcherStore store, int port, string origin, WatcherConfig config, string instance = null)
         {
-            var server = new PublicServer(store, port, origin, true);
+            var server = new PublicServer(store, port, origin, true, config, instance);
             try
             {
                 server.Start();
@@ -60,7 +84,7 @@ namespace SentisWatcher.Web
                           "Run as administrator once: netsh http add urlacl url=http://+:" + port + "/ user=" + Environment.UserDomainName + "\\" +
                           Environment.UserName + " and open the port in the firewall, then restart. Until then they are on 127.0.0.1 only.");
             }
-            var local = new PublicServer(store, port, origin, false);
+            var local = new PublicServer(store, port, origin, false, config, instance);
             local.Start();
             Log.Info("SentisWatcher: public stats at http://127.0.0.1:" + port + "/online and /perf");
             return local;
@@ -113,11 +137,26 @@ namespace SentisWatcher.Web
             try
             {
                 var request = context.Request;
+                var path = request.Url.AbsolutePath.TrimEnd('/');
+                if (path == "/battles" || path.StartsWith("/battles/", StringComparison.Ordinal))
+                {
+                    // No CORS on this server-to-server API. An Origin header is not authentication.
+                    response.AddHeader("Cache-Control", "private, no-store");
+                    response.AddHeader("Vary", "Authorization");
+                    response.AddHeader("X-Content-Type-Options", "nosniff");
+                    if (request.HttpMethod != "GET") { Send(response, 405, "{\"error\":\"read only\"}"); return; }
+                    if (request.Url.Query.Length > 1024) { Send(response, 400, "{\"error\":\"query too long\"}"); return; }
+                    var reply = _battles.Get(path, request.QueryString, request.Headers["Authorization"],
+                        request.RemoteEndPoint != null && IPAddress.IsLoopback(request.RemoteEndPoint.Address));
+                    if (reply.Status == 401) response.AddHeader("WWW-Authenticate", "Bearer realm=\"battles\"");
+                    if (reply.RetryAfter > 0) response.AddHeader("Retry-After", reply.RetryAfter.ToString(CultureInfo.InvariantCulture));
+                    Send(response, reply.Status, reply.Json);
+                    return;
+                }
                 response.AddHeader("Access-Control-Allow-Origin", _origin);
                 response.AddHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
                 if (request.HttpMethod == "OPTIONS") { Send(response, 204, ""); return; }
                 if (request.HttpMethod != "GET") { Send(response, 405, "{\"error\":\"read only\"}"); return; }
-                var path = request.Url.AbsolutePath.TrimEnd('/');
                 var now = Clock.Now;
                 string json;
                 switch (path)

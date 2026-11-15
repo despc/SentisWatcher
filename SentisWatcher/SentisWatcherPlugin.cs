@@ -60,6 +60,10 @@ namespace SentisWatcher
         {
             try
             {
+                // SentisGameplayImprovements' explosions (its ExplosionTweaks), scoped for their credit: patched as the
+                // session loads, before the world runs (no patching while the game runs), and once the plugins are all
+                // loaded (SGI's type is there)
+                if (state == TorchSessionState.Loading) Recording.DamageLog.PatchGameplayImprovements();
                 if (state == TorchSessionState.Loaded) Start();
                 else if (state == TorchSessionState.Unloading) Stop();
             }
@@ -106,7 +110,7 @@ namespace SentisWatcher
             {
                 try
                 {
-                    Public = PublicServer.StartFor(Store, Config.PublicPort, Config.PublicOrigin);
+                    Public = PublicServer.StartFor(Store, Config.PublicPort, Config.PublicOrigin, Config, StoragePath);
                 }
                 catch (Exception e)
                 {
@@ -136,6 +140,9 @@ namespace SentisWatcher
                 Log.Error(e, "SentisWatcher: the last inventory flows could not be written");
             }
             recorder.FlushAggregates(force: true);
+            DamageLog.ResetRounds();
+            DamageLog.ResetEconomy();
+            Identities.ResetCrews();
             InventoryLedger.Current?.FlushSuspects(recorder);
             InventoryLedger.Current = null;
             recorder.Event("server_stop", 0, 0);
