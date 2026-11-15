@@ -30,7 +30,7 @@ namespace SentisWatcher.Recording
 
         private sealed class Aggregate
         {
-            public string Kind, AttackerKind, Weapon, TargetKind, Relation, AttackerFaction, VictimFaction, Attribution, DamageKey;
+            public string Kind, AttackerKind, Weapon, TargetKind, Relation, AttackerFaction, VictimFaction, Attribution, DamageKey, VictimKind;
             public int Tracking, EconomyTracking;
             public long Attacker, AttackerEntity, Target, Victim;
             public double Amount;
@@ -246,6 +246,8 @@ namespace SentisWatcher.Recording
             var now = Clock.Now;
             var af = factionSnapshot ? recordedFaction : FactionAt(attacker);
             var vf = FactionAt(victim);
+            // whose the target is: a player's, an NPC's, a bot's (the published battles are only those between players)
+            var vk = targetKind == "animal" ? "animal" : KindOf(victim, null);
             var tracking = RoundTracking;
             var coverage = economyCoverage ?? EconomyTracking;
             lock (Lock)
@@ -258,6 +260,7 @@ namespace SentisWatcher.Recording
                         Kind = kind, Attacker = attacker, AttackerKind = attackerKind, AttackerEntity = attackerEntity, Weapon = weapon,
                         Target = target, TargetKind = targetKind, Victim = victim, Relation = relation,
                         AttackerFaction = af, VictimFaction = vf, Attribution = attribution, Tracking = tracking, EconomyTracking = coverage, DamageKey = kind == Hit && targetKind == "block" ? Guid.NewGuid().ToString("N") : null,
+                        VictimKind = vk,
                     };
                 a.Amount += amount;
                 a.Count++;
@@ -281,7 +284,7 @@ namespace SentisWatcher.Recording
             }
             foreach (var a in done)
                 recorder.Store.Add(new Row(Table.Damage, a.Last, a.Last, a.Kind, a.Attacker, a.AttackerKind, a.AttackerEntity, a.Weapon,
-                    a.Target, a.TargetKind, a.Victim, a.Relation, a.Amount, a.Count, a.Position.X, a.Position.Y, a.Position.Z, a.AttackerFaction, a.VictimFaction, a.Attribution, a.Tracking, Math.Min(a.EconomyTracking, EconomyTracking), a.DamageKey));
+                    a.Target, a.TargetKind, a.Victim, a.Relation, a.Amount, a.Count, a.Position.X, a.Position.Y, a.Position.Z, a.AttackerFaction, a.VictimFaction, a.Attribution, a.Tracking, Math.Min(a.EconomyTracking, EconomyTracking), a.DamageKey, a.VictimKind));
         }
     }
 }

@@ -56,7 +56,7 @@ namespace SentisWatcher.Web
                 }
                 key = PublicBattleApi.ReadKeyFile(keyFile);
             }
-            _battles = new PublicBattleApi((from, to, id) => _data.Battles(from, to, battle: id), enabled, key, config?.PublicBattlesDelayMinutes ?? 15);
+            _battles = new PublicBattleApi((from, to, id) => _data.Battles(from, to, battle: id, betweenPlayers: true), enabled, key, config?.PublicBattlesDelayMinutes ?? 15);
             if (enabled && !_battles.Ready) Log.Error("SentisWatcher: protected battle publication unavailable; configure a readable private key file (32-256 ASCII characters). No battles will be served.");
             _listener.Prefixes.Add(everywhere ? "http://+:" + port + "/" : "http://127.0.0.1:" + port + "/");
         }

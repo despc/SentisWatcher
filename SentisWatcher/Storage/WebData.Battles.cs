@@ -10,7 +10,7 @@ namespace SentisWatcher.Storage
         private sealed class BattleEvent
         {
             public long T, RowId, Attacker, Source, Target, Victim;
-            public string Kind, AttackerKind, Weapon, TargetKind, Relation, AttackerFaction, VictimFaction, Attribution, DamageKey;
+            public string Kind, AttackerKind, Weapon, TargetKind, Relation, AttackerFaction, VictimFaction, Attribution, DamageKey, VictimKind;
             public int? Tracking, EconomyTracking;
             public double Amount, X, Y, Z;
             public int Count;
@@ -52,9 +52,10 @@ namespace SentisWatcher.Storage
                     var tracking = details && WatcherStore.HasColumn(db, "damage", "shot_tracking") ? "shot_tracking" : "NULL";
                     var economy = details && WatcherStore.HasColumn(db, "damage", "economy_tracking") ? "economy_tracking" : "NULL";
                     var damageKey = details && WatcherStore.HasColumn(db, "damage", "damage_key") ? "damage_key" : "NULL";
+                    var victimKind = WatcherStore.HasColumn(db, "damage", "victim_kind") ? "victim_kind" : "NULL";
                     var kinds = shots ? "'shot','round','round_hit'" : "'hit','grind','destroyed','kill'";
                     using (var cmd = Command(db, "SELECT id,t,kind,attacker,attacker_kind,attacker_entity,weapon,target,target_kind,victim,relation,amount,count,x,y,z," +
-                        af + "," + vf + "," + credit + "," + tracking + "," + economy + "," + damageKey + " FROM damage WHERE t BETWEEN @a AND @b AND kind IN (" + kinds + ") ORDER BY t,id", ("@a", from), ("@b", to)))
+                        af + "," + vf + "," + credit + "," + tracking + "," + economy + "," + damageKey + "," + victimKind + " FROM damage WHERE t BETWEEN @a AND @b AND kind IN (" + kinds + ") ORDER BY t,id", ("@a", from), ("@b", to)))
                     using (var r = cmd.ExecuteReader())
                         while (r.Read()) rows.Add(new BattleEvent
                         {
@@ -64,6 +65,7 @@ namespace SentisWatcher.Storage
                             AttackerFaction = r.IsDBNull(16) ? null : r.GetString(16), VictimFaction = r.IsDBNull(17) ? null : r.GetString(17),
                             Attribution = r.IsDBNull(18) ? null : r.GetString(18), Tracking = r.IsDBNull(19) ? (int?)null : (int)L(r, 19),
                             EconomyTracking = r.IsDBNull(20) ? (int?)null : (int)L(r, 20), DamageKey = r.IsDBNull(21) ? null : r.GetString(21),
+                            VictimKind = r.IsDBNull(22) ? null : r.GetString(22),
                         });
                 }
             return rows;
@@ -81,6 +83,15 @@ namespace SentisWatcher.Storage
         public double MinCombatDamage { get; set; } = DefaultMinCombatDamage;
 
         private bool Qualifies(BattleGroup g) => g.Activity.Where(e => e.Seed && e.Kind == "hit").Sum(e => e.Amount) >= MinCombatDamage;
+
+        /// <summary>
+        /// A battle between players: a player's shot hit a player's grid or character of another side (an enemy's or a
+        /// neutral's: another faction, or a player of none). Players of one faction against pirates, bots and other NPCs are
+        /// no such battle, and the site is not given it. Rows written before victim_kind: the victim is a player when it
+        /// shot as one anywhere in the days read.
+        /// </summary>
+        private static bool BetweenPlayers(BattleGroup g, HashSet<long> players) => g.Activity.Any(e => e.Seed && e.Kind == "hit" &&
+            e.AttackerKind == "player" && (e.VictimKind == "player" || (e.VictimKind == null && players.Contains(e.Victim))));
 
         private static bool BattleRelated(BattleEvent a, BattleEvent b) =>
             (a.Attacker != 0 && (a.Attacker == b.Attacker || a.Attacker == b.Victim)) ||
@@ -147,7 +158,7 @@ namespace SentisWatcher.Storage
         /// their boundaries: read whole days and follow connected fights across midnight until silence is observed.
         /// The 31-day scan cap bounds pathological continuous fights; incomplete boundaries are explicitly marked.
         /// </summary>
-        public object Battles(long from, long to, int gapSeconds = 120, int radius = 5000, string battle = null)
+        public object Battles(long from, long to, int gapSeconds = 120, int radius = 5000, string battle = null, bool betweenPlayers = false)
         {
             gapSeconds = Math.Max(10, Math.Min(300, gapSeconds));
             radius = Math.Max(100, Math.Min(20000, radius));
@@ -183,7 +194,9 @@ namespace SentisWatcher.Storage
             var now = Clock.Now;
             var contextGroups = groups.Where(g => g.Activity.Any(e => e.Seed)).ToList();
             var ignored = rows.Count - groups.Where(g => g.Activity.Any(e => e.Seed)).Sum(g => g.Events.Count);
-            groups = visible.Where(g => g.Activity.Any(e => e.Seed) && Qualifies(g) && g.Start <= to && g.End + gap >= from).ToList();
+            var players = betweenPlayers ? new HashSet<long>(rows.Where(e => e.AttackerKind == "player" && e.Attacker != 0).Select(e => e.Attacker)) : null;
+            groups = visible.Where(g => g.Activity.Any(e => e.Seed) && Qualifies(g) && (!betweenPlayers || BetweenPlayers(g, players)) &&
+                g.Start <= to && g.End + gap >= from).ToList();
             var ids = groups.SelectMany(g => g.Events).SelectMany(e => battle == null ? new[] { e.Attacker, e.Victim } : new[] { e.Attacker, e.Victim, e.Source, e.Target }).Where(id => id != 0).Distinct().ToList();
             var names = Names(scanFrom, scanTo, ids, resolveLive: false);
             string Name(long id) => id == 0 ? "Неизвестно / без владельца" : names.TryGetValue(id, out var n) ? n : id.ToString();

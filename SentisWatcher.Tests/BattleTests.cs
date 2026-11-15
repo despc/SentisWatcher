@@ -20,10 +20,11 @@ namespace SentisWatcher.Tests
 
         private void Event(int seconds, double x = 0, long attacker = A, long victim = B, string kind = "hit", string relation = "enemy",
             string attackerKind = "player", string weapon = "Bullet:LargeRailgun", double amount = 100, string af = "1|[AAA] Alpha", string vf = "2|[BBB] Beta",
-            int? tracking = null, string credit = null, int count = 1, long target = 102)
+            int? tracking = null, string credit = null, int count = 1, long target = 102, string vk = null)
         {
             var t = Start + seconds * 1000L;
-            _rows.Add(new Row(Table.Damage, t, t, kind, attacker, attackerKind, 101L, weapon, target, "block", victim, relation, amount, count, x, 0.0, 0.0, af, vf, credit, tracking));
+            _rows.Add(new Row(Table.Damage, t, t, kind, attacker, attackerKind, 101L, weapon, target, "block", victim, relation, amount, count, x, 0.0, 0.0, af, vf, credit, tracking,
+                null, null, vk));
         }
 
         private void Jump(int seconds, long actor = A, long grid = 101, string kind = "jump", double origin = 0, double destination = 100000)
@@ -53,6 +54,33 @@ namespace SentisWatcher.Tests
                 var unknown = JToken.Parse(JsonConvert.SerializeObject(new WebData(store).Battles(Start - 120000, Start + 600000,
                     battle: (string)Call(store)["battles"].First(b => (double)b["combatDamage"] == 100000)["id"])));
                 Assert.Equal(JTokenType.Null, unknown["report"].Type);
+            }
+        }
+
+        [Fact]
+        public void Only_battles_between_players_of_two_sides_are_published()
+        {
+            const long C = A + 2;
+            // a player against an NPC's (pirates) and a bot's grids: no battle between players
+            Event(0, amount: 2000, vk: "npc", vf: "9|[SPRT] Space Pirates");
+            Event(0, x: 100000, amount: 2000, vk: "bot");
+            // a bot shooting a player: neither
+            Event(0, x: 200000, amount: 2000, attacker: B, attackerKind: "bot", victim: A, vk: "player");
+            // a player's grid shot by a player of another faction: one, though the victim never fired back
+            Event(0, x: 300000, amount: 2000, vk: "player");
+            // rows of before victim_kind: the victim a player when it fired as one somewhere; C never did
+            Event(0, x: 400000, amount: 2000, victim: C);
+            Event(0, x: 500000, amount: 2000, attacker: B, victim: A, af: "2|[BBB] Beta", vf: "1|[AAA] Alpha");
+            using (var store = Write())
+            {
+                var all = JToken.Parse(JsonConvert.SerializeObject(new WebData(store).Battles(Start - 120000, Start + 600000)));
+                Assert.Equal(6, all["battles"].Count());
+                var published = JToken.Parse(JsonConvert.SerializeObject(new WebData(store).Battles(Start - 120000, Start + 600000, betweenPlayers: true)));
+                Assert.Equal(new[] { 300000.0, 500000.0 }, published["battles"].Select(b => (double)b["x"]).OrderBy(x => x).ToArray());
+                // a report of a hidden one is not given either
+                var hidden = (string)all["battles"].First(b => (double)b["x"] == 0)["id"];
+                var report = JToken.Parse(JsonConvert.SerializeObject(new WebData(store).Battles(Start - 120000, Start + 600000, battle: hidden, betweenPlayers: true)));
+                Assert.Equal(JTokenType.Null, report["report"].Type);
             }
         }
 

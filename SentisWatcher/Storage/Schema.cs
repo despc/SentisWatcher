@@ -88,10 +88,10 @@ CREATE INDEX IF NOT EXISTS spikes_by_t ON spikes(t);
 -- who fights whom, summed over 2 s per attacker, weapon and target: kind hit, grind, destroyed (blocks), kill (characters),
 -- shot (a gun fired; no target); attacker_kind player, bot, animal, npc, none; attacker_entity the character or the grid;
 -- weapon 'Bullet:LargeGatlingTurret' (damage) or 'LargeGatlingTurret/NATO_25x184mm' (shots); target the grid or the
--- character, target_kind block, character, animal; victim the target's owner; relation enemy, neutral, ally, own, nobody
+-- character, target_kind block, character, animal; victim the target's owner, victim_kind as attacker_kind; relation enemy, neutral, ally, own, nobody
 CREATE TABLE IF NOT EXISTS damage(
   id INTEGER PRIMARY KEY, t INTEGER NOT NULL, kind TEXT NOT NULL, attacker INTEGER, attacker_kind TEXT, attacker_entity INTEGER,
-  weapon TEXT, target INTEGER, target_kind TEXT, victim INTEGER, relation TEXT, amount REAL, count INTEGER, x REAL, y REAL, z REAL, attacker_faction TEXT, victim_faction TEXT, attribution TEXT, shot_tracking INTEGER, economy_tracking INTEGER, damage_key TEXT);
+  weapon TEXT, target INTEGER, target_kind TEXT, victim INTEGER, relation TEXT, amount REAL, count INTEGER, x REAL, y REAL, z REAL, attacker_faction TEXT, victim_faction TEXT, attribution TEXT, shot_tracking INTEGER, economy_tracking INTEGER, damage_key TEXT, victim_kind TEXT);
 CREATE INDEX IF NOT EXISTS damage_by_t ON damage(t);
 
 CREATE TABLE IF NOT EXISTS block_economy(
@@ -118,6 +118,7 @@ CREATE INDEX IF NOT EXISTS hydrogen_by_grid ON hydrogen(grid,t);
             ("damage", "shot_tracking", "ALTER TABLE damage ADD COLUMN shot_tracking INTEGER"),
             ("damage", "economy_tracking", "ALTER TABLE damage ADD COLUMN economy_tracking INTEGER"),
             ("damage", "damage_key", "ALTER TABLE damage ADD COLUMN damage_key TEXT"),
+            ("damage", "victim_kind", "ALTER TABLE damage ADD COLUMN victim_kind TEXT"),
             ("load", "alloc_kb", "ALTER TABLE load ADD COLUMN alloc_kb REAL"),
             ("perf", "components", "ALTER TABLE perf ADD COLUMN components TEXT"),
             ("perf", "grids", "ALTER TABLE perf ADD COLUMN grids INTEGER"),
