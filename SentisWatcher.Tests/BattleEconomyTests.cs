@@ -49,7 +49,7 @@ namespace SentisWatcher.Tests
             }
             return new WatcherStore(_folder, () => 100000);
         }
-        private static JToken Data(WatcherStore store, string id = null) => JToken.FromObject(new WebData(store).Battles(Start - 120000, Start + 600000, battle: id));
+        private static JToken Data(WatcherStore store, string id = null) => JToken.FromObject(new WebData(store) { MinCombatDamage = 0 }.Battles(Start - 120000, Start + 600000, battle: id));
         private static JToken Report(WatcherStore store, int index = 0) => Data(store, (string)Data(store)["battles"][index]["id"])["report"];
         private static JToken Side(JToken e, string name = "[BBB] Beta") => e["sides"].Single(s => (string)s["name"] == name);
 

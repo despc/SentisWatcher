@@ -33,6 +33,29 @@ namespace SentisWatcher.Tests
                 Math.Abs(destination - origin), 1, "to=" + destination.ToString(System.Globalization.CultureInfo.InvariantCulture) + ";0;0 Jump Ship"));
         }
 
+        [Fact]
+        public void Grinding_alone_and_shooting_under_the_threshold_are_not_battles()
+        {
+            // grinding a stranger's grid: no shot, however much it takes apart
+            Event(0, kind: "grind", weapon: "Grind:AngleGrinder4Item", amount: 50000);
+            Event(10, kind: "grind", weapon: "Grind:AngleGrinder4Item", amount: 50000);
+            // a stray burst far away: under the threshold
+            Event(0, x: 100000, amount: WebData.DefaultMinCombatDamage - 1);
+            // shooting of the threshold exactly, with grinding beside it: a battle, the grinding a part of its damage
+            Event(0, x: 200000, amount: WebData.DefaultMinCombatDamage / 2);
+            Event(5, x: 200000, amount: WebData.DefaultMinCombatDamage / 2);
+            Event(6, x: 200000, kind: "grind", weapon: "Grind:AngleGrinder4Item", amount: 3000);
+            using (var store = Write())
+            {
+                var data = JToken.Parse(JsonConvert.SerializeObject(new WebData(store).Battles(Start - 120000, Start + 600000)));
+                var battle = Assert.Single(data["battles"]);
+                Assert.Equal(WebData.DefaultMinCombatDamage + 3000, (double)battle["combatDamage"]);
+                var unknown = JToken.Parse(JsonConvert.SerializeObject(new WebData(store).Battles(Start - 120000, Start + 600000,
+                    battle: (string)Call(store)["battles"].First(b => (double)b["combatDamage"] == 100000)["id"])));
+                Assert.Equal(JTokenType.Null, unknown["report"].Type);
+            }
+        }
+
         private WatcherStore Write()
         {
             using (var writer = new WatcherStore(_folder, () => 100000))
@@ -45,7 +68,7 @@ namespace SentisWatcher.Tests
         }
 
         private static JToken Call(WatcherStore store, string battle = null, long? from = null, long? to = null, int gap = 120, int radius = 5000) =>
-            JToken.Parse(JsonConvert.SerializeObject(new WebData(store).Battles(from ?? Start - 120000, to ?? Start + 600000, gap, radius, battle)));
+            JToken.Parse(JsonConvert.SerializeObject(new WebData(store) { MinCombatDamage = 0 }.Battles(from ?? Start - 120000, to ?? Start + 600000, gap, radius, battle)));
 
         [Fact]
         public void Accuracy_uses_unique_round_hits_not_damaged_blocks_and_public_api_keeps_the_new_results_safe()
@@ -390,7 +413,7 @@ namespace SentisWatcher.Tests
         [Fact]
         public void Web_api_routes_battle_parameters_and_selected_report()
         {
-            Event(0);
+            Event(0, amount: WebData.DefaultMinCombatDamage);
             using (var store = Write())
             {
                 var q = new System.Collections.Specialized.NameValueCollection

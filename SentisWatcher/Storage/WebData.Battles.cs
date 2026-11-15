@@ -69,6 +69,19 @@ namespace SentisWatcher.Storage
             return rows;
         }
 
+        /// <summary>
+        /// A battle shown and published: shooting (hits on an enemy's or a neutral's, not grinding) of this much damage at
+        /// least. Grinding alone (a stranger's abandoned grid taken apart) is no battle, and a stray shot or a turret
+        /// grazing someone's armour is none either: on the stand 123 of 269 "battles" of a week were under a second,
+        /// 58 under 100 damage. Grinding in a battle with shooting is still its part (in its damage, not in this sum).
+        /// </summary>
+        public const double DefaultMinCombatDamage = 1000;
+
+        /// <summary><see cref="DefaultMinCombatDamage"/>; the tests of the battles' own rules take 0.</summary>
+        public double MinCombatDamage { get; set; } = DefaultMinCombatDamage;
+
+        private bool Qualifies(BattleGroup g) => g.Activity.Where(e => e.Seed && e.Kind == "hit").Sum(e => e.Amount) >= MinCombatDamage;
+
         private static bool BattleRelated(BattleEvent a, BattleEvent b) =>
             (a.Attacker != 0 && (a.Attacker == b.Attacker || a.Attacker == b.Victim)) ||
             (a.Victim != 0 && (a.Victim == b.Attacker || a.Victim == b.Victim)) ||
@@ -170,7 +183,7 @@ namespace SentisWatcher.Storage
             var now = Clock.Now;
             var contextGroups = groups.Where(g => g.Activity.Any(e => e.Seed)).ToList();
             var ignored = rows.Count - groups.Where(g => g.Activity.Any(e => e.Seed)).Sum(g => g.Events.Count);
-            groups = visible.Where(g => g.Activity.Any(e => e.Seed) && g.Start <= to && g.End + gap >= from).ToList();
+            groups = visible.Where(g => g.Activity.Any(e => e.Seed) && Qualifies(g) && g.Start <= to && g.End + gap >= from).ToList();
             var ids = groups.SelectMany(g => g.Events).SelectMany(e => battle == null ? new[] { e.Attacker, e.Victim } : new[] { e.Attacker, e.Victim, e.Source, e.Target }).Where(id => id != 0).Distinct().ToList();
             var names = Names(scanFrom, scanTo, ids, resolveLive: false);
             string Name(long id) => id == 0 ? "Неизвестно / без владельца" : names.TryGetValue(id, out var n) ? n : id.ToString();
