@@ -76,6 +76,9 @@ namespace SentisWatcher.Ledger
             Context(ctx, typeof(MyReactor), "ConsumeFuel", nameof(ConsumePrefix), nameof(ConsumeSuffix));
             Context(ctx, typeof(MyGasGenerator), "ConsumeFuel", nameof(ConsumePrefix), nameof(ConsumeSuffix));
             Context(ctx, typeof(MyGunBase), nameof(MyGunBase.ConsumeMagazine), nameof(ConsumePrefix), nameof(ConsumeSuffix));
+            // the terminal's "Force Reload" (16.11.2026): a full loaded magazine goes back into the weapon's inventory,
+            // one of the selected type comes out - without a context the one put back was an item "from an unknown source"
+            Context(ctx, typeof(MyGunBase), nameof(MyGunBase.ForceReload), nameof(ReloadPrefix), nameof(ReloadSuffix));
             Context(ctx, typeof(MyShipConnector), "TryThrowOutItem", nameof(ThrowPrefix), nameof(ThrowSuffix));
 
             // SentisOptimisations' own production (the freezer making up for frozen time), when it is loaded
@@ -629,6 +632,16 @@ namespace SentisWatcher.Ledger
         private static void ConsumeSuffix(object __instance)
         {
             if (InventoryLedger.Current != null) Contexts.Pop("consume", __instance);
+        }
+
+        private static void ReloadPrefix(object __instance)
+        {
+            if (InventoryLedger.Current != null) Contexts.Push("reload", __instance);
+        }
+
+        private static void ReloadSuffix(object __instance)
+        {
+            if (InventoryLedger.Current != null) Contexts.Pop("reload", __instance);
         }
 
         private static void BuildPrefix(object __instance)

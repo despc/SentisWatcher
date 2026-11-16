@@ -57,5 +57,14 @@ namespace SentisWatcher.Tests
         {
             Assert.Equal("npc", Sources.Known("MyAgentDefinition", "AddItems"));
         }
+
+        [Fact]
+        public void A_combat_bots_loadout_is_npc()
+        {
+            // the combat bots of the game's update of 16.11.2026 are given their weapons and magazines by these
+            Assert.Equal("npc", Sources.Known("MyBotLoadout", "LoadHeldMagazine"));
+            Assert.Equal("npc", Sources.Known("MyCombatAstronautActions", "EnsureAmmo"));
+            Assert.Equal(("MyBotLoadout", "TryEquipRolledWeapon"), Sources.FromPatched("Patched_SpaceEngineers.Game.AI.MyBotLoadoutTryEquipRolledWeapon_0"));
+        }
     }
 }

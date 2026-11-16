@@ -222,7 +222,6 @@ namespace SentisWatcher.Recording
                 Section("Sandbox.Game.AI.MyBotCollection", "Update", nameof(XAiBotsStart), nameof(XAiBotsEnd));
                 Section("Sandbox.MySandboxGame", "ProcessRenderOutput", nameof(XRenderOutputStart), nameof(XRenderOutputEnd));
                 Section("Sandbox.Engine.MyGeneralStats", "Update", nameof(XGeneralStatsStart), nameof(XGeneralStatsEnd));
-                Section("Sandbox.Game.MyGameStats", "Update", nameof(XGameStatsStart), nameof(XGameStatsEnd));
                 Section("Sandbox.Engine.Networking.MyNetworkMonitor", "Update", nameof(XNetworkMonitorStart), nameof(XNetworkMonitorEnd));
                 Section("Sandbox.Engine.Multiplayer.MyMultiplayerBase", "ReportReplicatedObjects", nameof(XReportReplicatedStart), nameof(XReportReplicatedEnd));
                 Section("Sandbox.Game.Multiplayer.MyGpsCollection", "Update", nameof(XGpsStart), nameof(XGpsEnd));
@@ -840,9 +839,6 @@ namespace SentisWatcher.Recording
         private static long _xGeneralStatsStart, _xGeneralStatsNested;
         private static void XGeneralStatsStart() { if (_timing) _xGeneralStatsStart = Begin(out _xGeneralStatsNested); }
         private static void XGeneralStatsEnd() { if (_timing && _xGeneralStatsStart != 0) End(Named(System, "general_stats"), _xGeneralStatsStart, _xGeneralStatsNested); _xGeneralStatsStart = 0; }
-        private static long _xGameStatsStart, _xGameStatsNested;
-        private static void XGameStatsStart() { if (_timing) _xGameStatsStart = Begin(out _xGameStatsNested); }
-        private static void XGameStatsEnd() { if (_timing && _xGameStatsStart != 0) End(Named(System, "game_stats"), _xGameStatsStart, _xGameStatsNested); _xGameStatsStart = 0; }
         private static long _xNetworkMonitorStart, _xNetworkMonitorNested;
         private static void XNetworkMonitorStart() { if (_timing) _xNetworkMonitorStart = Begin(out _xNetworkMonitorNested); }
         private static void XNetworkMonitorEnd() { if (_timing && _xNetworkMonitorStart != 0) End(Named(System, "network_monitor"), _xNetworkMonitorStart, _xNetworkMonitorNested); _xNetworkMonitorStart = 0; }

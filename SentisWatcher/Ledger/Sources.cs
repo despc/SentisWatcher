@@ -85,7 +85,10 @@ namespace SentisWatcher.Ledger
                 case "MyGlobalEncountersGenerator":
                 case "MyEncounterGenerator":
                 case "MyNeutralShipSpawner":
-                case "MyPirateAntennas": return "npc";
+                case "MyPirateAntennas":
+                // the combat bots' (16.11.2026) weapons and magazines, given them when made and while they fight
+                case "MyBotLoadout":
+                case "MyCombatAstronautActions": return "npc";
                 case "MyReactor": return "reactor";
                 // a block that makes items out of light and water: the algae farm (MySolarFoodGenerator calls
                 // MyItemProducerComponent.Produce, into its own inventory or down the conveyors)
@@ -123,7 +126,7 @@ namespace SentisWatcher.Ledger
             "MyContractObtainAndDeliver", "MyVisualScriptLogicProvider", "MyCampaignSessionComponent",
             "MySessionComponentScriptSharedStorage", "MyStationResourcesGenerator", "MyAgentDefinition", "MyHumanoidBotDefinition",
             "MyBotDefinition", "MySessionComponentEconomy", "MyStation", "MyGlobalEncountersGenerator", "MyEncounterGenerator",
-            "MyNeutralShipSpawner", "MyPirateAntennas", "MyReactor", "MyItemProducerComponent", "MySolarFoodGenerator", "MyFarmPlotLogic", "MyEntityInventorySpawnComponent", "MySpaceRespawnComponent",
+            "MyNeutralShipSpawner", "MyPirateAntennas", "MyBotLoadout", "MyCombatAstronautActions", "MyReactor", "MyItemProducerComponent", "MySolarFoodGenerator", "MyFarmPlotLogic", "MyEntityInventorySpawnComponent", "MySpaceRespawnComponent",
             "MyRespawnComponentBase", "MyRespawnComponent", "MyMedicalRoom", "MySurvivalKit", "MyTradingManager", "MyPrefabManager",
             "MyFloatingObjects", "MyFloatingObject", "MyProjectorBase", "MyCubeBuilder", "MyCharacter", "MyCubeGrid",
         }.OrderByDescending(t => t.Length).ToArray();
