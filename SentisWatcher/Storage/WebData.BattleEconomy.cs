@@ -34,7 +34,7 @@ namespace SentisWatcher.Storage
         private static string Money(decimal value) => value.ToString("0", CultureInfo.InvariantCulture);
 
         // This table is read only for a selected report, never for every item in the battle catalogue.
-        private JObject BattleEconomy(BattleGroup battle, List<BattleGroup> groups, Func<long, string> name, bool provisional)
+        private JObject BattleEconomy(BattleGroup battle, List<BattleGroup> groups, Func<long, string> name, bool provisional, long gap)
         {
             const long slack = 2000;
             const int recordLimit = 100000;
@@ -58,7 +58,7 @@ namespace SentisWatcher.Storage
                 }
             var scanned = 0; var invalid = 0; var ambiguous = 0; var unmatched = 0; var truncated = false;
             if (grids.Count > 0)
-                foreach (var db in Days(battle.Start - slack, battle.End + 120000 + slack))
+                foreach (var db in Days(battle.Start - slack, battle.End + gap + slack))
                     using (db)
                     {
                         if (!HasTable(db, "block_economy")) continue;

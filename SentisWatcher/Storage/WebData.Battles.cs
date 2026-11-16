@@ -153,17 +153,20 @@ namespace SentisWatcher.Storage
             return groups;
         }
 
+        /// <summary>Seconds without related damage that end a battle: the setting, two minutes without the plugin (tests).</summary>
+        public Func<int> BattleEndSeconds { get; set; } = () => (SentisWatcherPlugin.Config?.BattleEndMinutes ?? 2) * 60;
+
         /// <summary>
-        /// A battle stays open until two minutes without related damage. The requested range selects battles, not
+        /// A battle stays open until <see cref="BattleEndSeconds"/> (two minutes by default) without related damage. The requested range selects battles, not
         /// their boundaries: read whole days and follow connected fights across midnight until silence is observed.
         /// The 31-day scan cap bounds pathological continuous fights; incomplete boundaries are explicitly marked.
         /// </summary>
-        public object Battles(long from, long to, int gapSeconds = 120, int radius = 5000, string battle = null, bool betweenPlayers = false)
+        public object Battles(long from, long to, int? gapSeconds = null, int radius = 5000, string battle = null, bool betweenPlayers = false)
         {
-            gapSeconds = Math.Max(10, Math.Min(300, gapSeconds));
+            var seconds = Math.Max(10, Math.Min(1800, gapSeconds ?? BattleEndSeconds()));
             radius = Math.Max(100, Math.Min(20000, radius));
             if (to < from) return new { error = "Конец интервала раньше начала" };
-            var gap = gapSeconds * 1000L;
+            var gap = seconds * 1000L;
             var radius2 = (double)radius * radius;
             var scanFrom = Clock.ToMs(Clock.Day(from));
             var scanTo = Clock.ToMs(Clock.Day(to).AddDays(1)) - 1;
@@ -263,7 +266,7 @@ namespace SentisWatcher.Storage
                     if (e.Seed) combat[index] += e.Amount;
                 }
                 var economy = BattleEconomy(selected, contextGroups, Name,
-                    now < selected.End + gap || selected.Start - scanFrom < gap || scanTo - selected.End < gap);
+                    now < selected.End + gap || selected.Start - scanFrom < gap || scanTo - selected.End < gap, gap);
                 report = new
                 {
                     summary = Summary(selected, economy),
@@ -290,7 +293,7 @@ namespace SentisWatcher.Storage
             }
             return new
             {
-                from, to, scanFrom, scanTo, gapSeconds, radius, rows = rows.Count, ignored,
+                from, to, scanFrom, scanTo, gapSeconds = seconds, radius, rows = rows.Count, ignored,
                 battles = groups.OrderByDescending(g => Damage(g.Activity.Where(e => e.Seed))).ThenBy(g => g.Start).Select(g => Summary(g)).ToList(), report,
             };
         }

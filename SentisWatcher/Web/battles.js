@@ -36,13 +36,15 @@ function drawList() {
     <span>${b.participants.map(esc).join(', ') || 'Неизвестные участники'}</span><small>${b.factions.map(esc).join(' / ')}</small>
     <span>Блоков: ${num(b.destroyed)} · убито: ${num(b.kills)}${b.clippedStart || b.clippedEnd ? ' · ⚠ предел поиска' : ''}</span></button>`).join('') : '<p class="dim">Сражений не найдено. Выберите день БД или измените интервал.</p>';
 }
+// the silence that ends a battle: the plugin's setting, as the server used it
+const pause = () => `${Math.round((data?.gapSeconds ?? 120) / 6) / 10} мин`;
 const person = p => `${esc(p.name)}<small>${esc(p.faction)}</small>`;
 function drawReport() {
   disposeTimeline?.(); disposeTimeline = null;
   if (!report) { $('#report').innerHTML = '<h2>Итоги боя</h2><p class="dim">Выберите сражение слева.</p>'; return; }
   const b = report.summary;
   $('#report').innerHTML = `<h2>Итоги боя · ${esc(b.title)}</h2>
-    <p>${fmt(b.start)} — ${fmt(b.end)} · ${duration(b.duration)} · последний урон ${fmt(b.end)}<br>${b.ongoing ? '<b>Бой продолжается — ещё не прошло 2 минуты без урона</b>' : b.endedAt ? `Завершён ${fmt(b.endedAt)} после 2 минут тишины` : 'Окончание не подтверждено'} ${b.clippedStart || b.clippedEnd ? '<span class="warn">· Достигнут защитный предел поиска границ</span>' : ''}</p>
+    <p>${fmt(b.start)} — ${fmt(b.end)} · ${duration(b.duration)} · последний урон ${fmt(b.end)}<br>${b.ongoing ? `<b>Бой продолжается — ещё не прошло ${pause()} без урона</b>` : b.endedAt ? `Завершён ${fmt(b.endedAt)} после ${pause()} тишины` : 'Окончание не подтверждено'} ${b.clippedStart || b.clippedEnd ? '<span class="warn">· Достигнут защитный предел поиска границ</span>' : ''}</p>
     <div class="summary">${[['Боевой урон', b.combatDamage], ['Весь урон с контекстом', b.damage], ['Событий урона', b.hits], ['Убито с контекстом', b.kills], ['Блоков с контекстом', b.destroyed]].map(([k, v]) => `<div class="card"><div class="k">${k}</div><div class="v">${num(v)}</div></div>`).join('')}</div>
     ${outcomeHtml(b.outcome)}${mvpHtml(report.mvp)}
     <section id="economy" aria-label="Экономические потери"></section>
@@ -62,7 +64,7 @@ function drawReport() {
     <label>Чем <select id="weapon"><option value="">всё</option>${[...new Set(report.breakdown.map(r => r.weapon))].sort().map(w => `<option value="${esc(w)}">${esc(w)}</option>`).join('')}</select></label>
     <label>Отношение <select id="relation"><option value="">все</option>${Object.entries(relations).map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select></label><span id="filteredTotal"></span></div>
     <div class="table-scroll"><table class="load"><thead><tr><th>Получатель / фракция</th><th>Кто / фракция</th><th>Источник → цель</th><th>Чем</th><th>Отношение</th><th class="n">Урон</th><th class="n">Событий урона</th><th class="n">Убито</th><th class="n">Блоков</th></tr></thead><tbody id="breakdown"></tbody></table></div>
-    <p class="dim">Неизвестный источник не считается отдельным игроком. Фракции старых записей не восстанавливаются из текущего мира. В старой записи нельзя восстановить пилота/строителя: MVP следует сохранённой атрибуции. Уничтоженные блоки не означают уничтоженные корабли. Меткость — прямые попадания снарядами, а не число повреждённых блоков; взрыв рядом без прямого контакта не считается попаданием. Окно выстрелов включает 2 минуты до первого урона и до завершения боя. «—» означает, что точных данных нет. Прыжки считаются с первого урона до завершения, включая пассажиров, без повторов одного физического прыжка.</p>`;
+    <p class="dim">Неизвестный источник не считается отдельным игроком. Фракции старых записей не восстанавливаются из текущего мира. В старой записи нельзя восстановить пилота/строителя: MVP следует сохранённой атрибуции. Уничтоженные блоки не означают уничтоженные корабли. Меткость — прямые попадания снарядами, а не число повреждённых блоков; взрыв рядом без прямого контакта не считается попаданием. Окно выстрелов включает ${pause()} до первого урона и до завершения боя. «—» означает, что точных данных нет. Прыжки считаются с первого урона до завершения, включая пассажиров, без повторов одного физического прыжка.</p>`;
   renderEconomy();
   disposeTimeline = mountBattleTimeline($('#battleChart'), report, fmt);
   for (const id of ['victim', 'weapon', 'relation']) $('#' + id).addEventListener('change', drawBreakdown);
@@ -114,6 +116,7 @@ async function load(preferred = '') {
     const result = await api('battles', params);
     if (version !== request) return;
     data = result; drawList();
+    document.querySelectorAll('.gap').forEach(e => { e.textContent = pause(); });
     status(`Сражений: ${data.battles.length} · границы найдены автоматически · проверено записей: ${num(data.rows)}`);
     const id = data.battles.find(b => b.id === preferred)?.id || data.battles[0]?.id;
     if (id) await selectBattle(id);

@@ -1,3 +1,4 @@
+using System;
 using SentisWatcher.GUI;
 using Torch;
 
@@ -100,6 +101,19 @@ namespace SentisWatcher.Config
             set => SetValue(ref _publicOrigin, value);
         }
 
+        private int _battleEndMinutes = 2;
+
+        /// <summary>Minutes without related damage after which a battle is over.</summary>
+        [DisplayTab(Name = "Battle ends after silence (minutes)", GroupName = "Battles", Tab = "Web view", Order = 5, LiveUpdate = true,
+            Description = "A battle is over when this many minutes pass without new related damage. Default 2, minimum 1, maximum 30. " +
+                          "Battles are found when they are read, so this applies at once, to old records too: a longer pause joins fights " +
+                          "a short one splits (their IDs change). Also the window of shots and jumps around a battle.")]
+        public int BattleEndMinutes
+        {
+            get => _battleEndMinutes;
+            set => SetValue(ref _battleEndMinutes, Math.Max(1, Math.Min(30, value)));
+        }
+
         private bool _publicBattlesEnabled = true;
         private string _publicBattlesKeyFile = "";
         private int _publicBattlesDelayMinutes = 15;
@@ -127,7 +141,7 @@ namespace SentisWatcher.Config
         }
 
         [DisplayTab(Name = "Battle publication delay (minutes)", GroupName = "Battle REST API", Tab = "Web view", Order = 14,
-            Description = "Wait this long AFTER the two-minute battle closure before publication. Default 15, minimum 5, maximum 1440. " +
+            Description = "Wait this long AFTER the battle is over (the silence above) before publication. Default 15, minimum 5, maximum 1440. " +
                           "No live battles, coordinates, internal entity/identity/Steam IDs or real grid names are exposed. Takes effect after restart.")]
         public int PublicBattlesDelayMinutes
         {

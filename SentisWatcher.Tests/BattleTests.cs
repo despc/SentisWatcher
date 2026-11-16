@@ -487,6 +487,22 @@ namespace SentisWatcher.Tests
         }
 
         [Fact]
+        public void The_silence_that_ends_a_battle_is_the_setting_when_the_request_names_none()
+        {
+            Event(0, 0); Event(240, 0);
+            using (var store = Write())
+            {
+                JToken Read(int seconds) => JToken.Parse(JsonConvert.SerializeObject(new WebData(store) { MinCombatDamage = 0, BattleEndSeconds = () => seconds }
+                    .Battles(Start - 120000, Start + 600000)));
+                Assert.Equal(2, Read(120)["battles"].Count());
+                var five = Read(300);
+                Assert.Single(five["battles"]);
+                Assert.Equal(300, (int)five["gapSeconds"]);
+                Assert.Equal(1800, (int)Call(store, gap: 100000)["gapSeconds"]);
+            }
+        }
+
+        [Fact]
         public void Related_damage_keeps_a_battle_open_as_long_as_it_continues_then_silence_ends_it()
         {
             Event(0);
