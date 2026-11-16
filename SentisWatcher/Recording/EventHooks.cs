@@ -41,6 +41,7 @@ namespace SentisWatcher.Recording
             MyEntities.OnEntityRemove += OnEntityRemove;
             foreach (var entity in MyEntities.GetEntities())
                 if (entity is MyCubeGrid grid) Watch(grid);
+            SafeZoneWatch.Attach();
             if (!_damageRegistered)
             {
                 // cannot be unregistered: it does nothing while nothing is recorded
@@ -62,6 +63,7 @@ namespace SentisWatcher.Recording
             if (MySession.Static?.Factions != null) MySession.Static.Factions.FactionStateChanged -= OnFaction;
             MyEntities.OnEntityAdd -= OnEntityAdd;
             MyEntities.OnEntityRemove -= OnEntityRemove;
+            SafeZoneWatch.Detach();
             lock (_grids)
             {
                 foreach (var grid in _grids)
