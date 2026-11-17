@@ -114,6 +114,26 @@ namespace SentisWatcher.Storage
             return false;
         }
 
+        /// <summary>
+        /// The battle goes on elsewhere: hostile damage by or to a grid that took part in the battle's hostile damage within
+        /// the gap before (the same attacking grid, or the same grid hit), wherever it is now - a ship that jumped or flew
+        /// off and fought on. Later only: the same grid cannot be in two places at once, and a fight that starts beside
+        /// another at the same moment is its own.
+        /// </summary>
+        private static bool ContinuedBy(BattleGroup group, BattleEvent e, long gap)
+        {
+            if (!e.Seed) return false;
+            var activity = group.Activity;
+            for (var i = activity.Count - 1; i >= 0 && activity[i].T >= e.T - gap; i--)
+            {
+                var a = activity[i];
+                if (!a.Seed || a.T >= e.T) continue;
+                if ((e.Source != 0 && (e.Source == a.Source || e.Source == a.Target)) ||
+                    (e.Target != 0 && (e.Target == a.Target || e.Target == a.Source))) return true;
+            }
+            return false;
+        }
+
         private static List<BattleGroup> DetectBattles(List<BattleEvent> rows, long gap, double radius2)
         {
             var groups = new List<BattleGroup>();
@@ -121,7 +141,7 @@ namespace SentisWatcher.Storage
             foreach (var e in rows.Where(e => e.Continues))
             {
                 active.RemoveAll(g => e.T - g.End > gap);
-                var matches = active.Where(g => NearActivity(g, e, gap, radius2, related: !e.Seed)).ToList();
+                var matches = active.Where(g => NearActivity(g, e, gap, radius2, related: !e.Seed) || ContinuedBy(g, e, gap)).ToList();
                 // Keep provisional unattributed damage chains so a battle can be traced backwards across midnight.
                 // Only chains containing hostile damage are exposed as battles. Ambiguous collateral never merges them.
                 if (!e.Seed && matches.Count > 1) continue;

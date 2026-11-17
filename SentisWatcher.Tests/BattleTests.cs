@@ -20,10 +20,10 @@ namespace SentisWatcher.Tests
 
         private void Event(int seconds, double x = 0, long attacker = A, long victim = B, string kind = "hit", string relation = "enemy",
             string attackerKind = "player", string weapon = "Bullet:LargeRailgun", double amount = 100, string af = "1|[AAA] Alpha", string vf = "2|[BBB] Beta",
-            int? tracking = null, string credit = null, int count = 1, long target = 102, string vk = null)
+            int? tracking = null, string credit = null, int count = 1, long target = 102, string vk = null, long source = 101)
         {
             var t = Start + seconds * 1000L;
-            _rows.Add(new Row(Table.Damage, t, t, kind, attacker, attackerKind, 101L, weapon, target, "block", victim, relation, amount, count, x, 0.0, 0.0, af, vf, credit, tracking,
+            _rows.Add(new Row(Table.Damage, t, t, kind, attacker, attackerKind, source, weapon, target, "block", victim, relation, amount, count, x, 0.0, 0.0, af, vf, credit, tracking,
                 null, null, vk));
         }
 
@@ -41,11 +41,11 @@ namespace SentisWatcher.Tests
             Event(0, kind: "grind", weapon: "Grind:AngleGrinder4Item", amount: 50000);
             Event(10, kind: "grind", weapon: "Grind:AngleGrinder4Item", amount: 50000);
             // a stray burst far away: under the threshold
-            Event(0, x: 100000, amount: WebData.DefaultMinCombatDamage - 1);
+            Event(0, x: 100000, amount: WebData.DefaultMinCombatDamage - 1, source: 301, target: 302);
             // shooting of the threshold exactly, with grinding beside it: a battle, the grinding a part of its damage
-            Event(0, x: 200000, amount: WebData.DefaultMinCombatDamage / 2);
-            Event(5, x: 200000, amount: WebData.DefaultMinCombatDamage / 2);
-            Event(6, x: 200000, kind: "grind", weapon: "Grind:AngleGrinder4Item", amount: 3000);
+            Event(0, x: 200000, amount: WebData.DefaultMinCombatDamage / 2, source: 401, target: 402);
+            Event(5, x: 200000, amount: WebData.DefaultMinCombatDamage / 2, source: 401, target: 402);
+            Event(6, x: 200000, kind: "grind", weapon: "Grind:AngleGrinder4Item", amount: 3000, source: 401, target: 402);
             using (var store = Write())
             {
                 var data = JToken.Parse(JsonConvert.SerializeObject(new WebData(store).Battles(Start - 120000, Start + 600000)));
@@ -81,6 +81,29 @@ namespace SentisWatcher.Tests
                 var hidden = (string)all["battles"].First(b => (double)b["x"] == 0)["id"];
                 var report = JToken.Parse(JsonConvert.SerializeObject(new WebData(store).Battles(Start - 120000, Start + 600000, battle: hidden, betweenPlayers: true)));
                 Assert.Equal(JTokenType.Null, report["report"].Type);
+            }
+        }
+
+        [Fact]
+        public void A_ship_that_fights_on_elsewhere_stays_in_its_battle_and_a_fight_of_other_grids_far_off_is_its_own()
+        {
+            const long C = A + 2, D = A + 3;
+            // ship 101 hits grid 102 here, jumps 50 km and, 100 s later, hits grid 103 there: one battle
+            Event(0, amount: 2000);
+            Event(5, amount: 2000);
+            Event(100, x: 50000, amount: 2000, target: 103);
+            // grid 103, hit there, fires back at ship 101 later still: the same battle
+            Event(110, x: 50000, amount: 2000, attacker: B, victim: A, source: 103, target: 101, af: "2|[BBB] Beta", vf: "1|[AAA] Alpha");
+            // two others shooting each other far off at the same time, no grid of the battle: a battle of their own
+            Event(100, x: 200000, amount: 2000, attacker: C, victim: D, source: 201, target: 202, af: "3|[CCC] Gamma", vf: "4|[DDD] Delta");
+            using (var store = Write())
+            {
+                var battles = Call(store, gap: 300)["battles"].ToList();
+                Assert.Equal(2, battles.Count);
+                var moved = battles.Single(b => (double)b["combatDamage"] == 8000);
+                Assert.Equal(Start, (long)moved["start"]);
+                Assert.Equal(Start + 110000, (long)moved["end"]);
+                Assert.Single(battles, b => (double)b["combatDamage"] == 2000);
             }
         }
 
@@ -340,7 +363,7 @@ namespace SentisWatcher.Tests
         public void Space_time_components_merge_bridges_but_not_remote_or_later_fights()
         {
             Event(0, 0); Event(10, 8000); Event(20, 4000); // bridges the two components
-            Event(25, 50000); // same players, different location
+            Event(25, 50000, source: 301, target: 302); // same players, different location, other grids (a grid of the battle would carry it there)
             Event(200, 4000); // same place, beyond silence threshold
             using (var store = Write())
             {
@@ -477,7 +500,7 @@ namespace SentisWatcher.Tests
         [Fact]
         public void Gap_and_radius_boundaries_are_inclusive()
         {
-            Event(0, 0); Event(120, 5000);
+            Event(0, 0); Event(120, 5000, source: 301, target: 302); // other grids: the radius alone joins them
             using (var store = Write())
             {
                 Assert.Single(Call(store)["battles"]);
