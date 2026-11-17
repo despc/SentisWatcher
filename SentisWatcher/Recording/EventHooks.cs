@@ -154,6 +154,7 @@ namespace SentisWatcher.Recording
                     var grid = (MyCubeGrid)slim.CubeGrid;
                     var at = grid.GridIntegerToWorld(slim.Position);
                     var kind = info.Type == MyDamageType.Grind ? "grind" : "damage";
+                    DamageBlockedWatch.Damaged(grid, info.Amount);
                     R.Aggregator.Add(Storage.Clock.Now, kind, attacker, grid.EntityId, type + " by " + info.AttackerId, info.Amount, at);
                     if (slim.IsDestroyed || slim.Integrity <= 0)
                         R.Aggregator.Add(Storage.Clock.Now, "destroyed", attacker, grid.EntityId, type + " by " + info.AttackerId, 1, at);

@@ -296,6 +296,7 @@ namespace SentisWatcher.Recording
             if ((relation != "enemy" && relation != "neutral") || !round.TryHit()) return;
             Add(RoundHit, round.Actor, round.Kind, round.Grid, round.Weapon, grid?.EntityId ?? target.EntityId,
                 grid != null ? "block" : "character", victim, relation, 1, target.PositionComp.GetPosition(), round.Attribution, true, round.Faction);
+            if (grid != null) DamageBlockedWatch.Hit(grid, round.Actor, round.Weapon, target.PositionComp.GetPosition());
         }
     }
 }

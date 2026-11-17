@@ -141,6 +141,7 @@ namespace SentisWatcher
             }
             recorder.FlushAggregates(force: true);
             DamageLog.ResetRounds();
+            DamageBlockedWatch.Reset();
             DamageLog.ResetEconomy();
             Identities.ResetCrews();
             InventoryLedger.Current?.FlushSuspects(recorder);

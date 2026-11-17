@@ -73,6 +73,7 @@ namespace SentisWatcher.Recording
             DamageLog.FlushEconomy(this, force);
             DamageLog.Flush(this, force);
             ConveyorLog.Flush(this, force);
+            DamageBlockedWatch.Check(this, force);
             var done = Aggregator.Take(Clock.Now, force);
             if (done == null) return;
             foreach (var a in done)

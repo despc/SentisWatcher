@@ -136,6 +136,7 @@ namespace SentisWatcher.Recording
         internal static void EconomyTouch(object target, ref MyDamageInformation info)
         {
             if (!(target is MySlimBlock block)) return;
+            if (!info.IsDeformation) DamageBlockedWatch.Reached(block, info.Amount);
             var call = TopCall;
             // The engine also raises BEFORE-only queries for geometric deformation, even on a just destroyed
             // block. Those are not damage applications and have no matching AFTER callback.
