@@ -64,6 +64,8 @@ namespace SentisWatcher
                 // session loads, before the world runs (no patching while the game runs), and once the plugins are all
                 // loaded (SGI's type is there)
                 if (state == TorchSessionState.Loading) Recording.DamageLog.PatchGameplayImprovements();
+                // VirtualGarage's put-ins and take-outs, checked against the world: the same way, as the session loads
+                if (state == TorchSessionState.Loading) Recording.GarageWatch.PatchVirtualGarage();
                 if (state == TorchSessionState.Loaded) Start();
                 else if (state == TorchSessionState.Unloading) Stop();
             }
@@ -142,6 +144,7 @@ namespace SentisWatcher
             recorder.FlushAggregates(force: true);
             DamageLog.ResetRounds();
             DamageBlockedWatch.Reset();
+            GarageWatch.Reset();
             DamageLog.ResetEconomy();
             Identities.ResetCrews();
             InventoryLedger.Current?.FlushSuspects(recorder);

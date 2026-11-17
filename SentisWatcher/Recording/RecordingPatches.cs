@@ -164,6 +164,7 @@ namespace SentisWatcher.Recording
             var actor = Identities.OfSteam(steam);
             var grids = parameters.Entities;
             if (grids == null || grids.Count == 0) return;
+            GridSpawnWatch.Pasting(parameters);
             var blocks = grids.Sum(g => g.CubeBlocks?.Count ?? 0);
             var names = string.Join(", ", grids.Select(g => g.DisplayName)).Short(300);
             var level = steam == 0 ? MyPromoteLevel.Owner : MySession.Static.GetUserPromoteLevel(steam);

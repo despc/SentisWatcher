@@ -74,6 +74,7 @@ namespace SentisWatcher.Recording
             DamageLog.Flush(this, force);
             ConveyorLog.Flush(this, force);
             DamageBlockedWatch.Check(this, force);
+            if (!force) GarageWatch.Check(this);
             var done = Aggregator.Take(Clock.Now, force);
             if (done == null) return;
             foreach (var a in done)

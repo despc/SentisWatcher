@@ -105,6 +105,7 @@ namespace SentisWatcher.Recording
             var owner = Identities.Owner(grid);
             R.Name(grid.EntityId, "grid", grid.DisplayName, owner);
             R.Event("grid_added", owner, grid.EntityId, grid.PositionComp.GetPosition(), count: grid.BlocksCount, detail: grid.DisplayName);
+            GridSpawnWatch.Added(grid);
         });
 
         private void OnEntityRemove(MyEntity entity) => Recorder.Safe("entity remove", () =>
