@@ -28,4 +28,7 @@
   <PublicBattlesKeyFile />
   <!-- Задержка после завершения боя: минимум 5, по умолчанию 15 минут. -->
   <PublicBattlesDelayMinutes>15</PublicBattlesDelayMinutes>
+  <!-- Страница сражения на сайте: когда сражение опубликовано, его участникам онлайн пишется в чат набрать !br,
+       и !br открывает эту страницу с их сражением в оверлее Steam. Пусто - без уведомлений. -->
+  <BattleReportPage>https://sentis-project.online/battles.html</BattleReportPage>
 </WatcherConfig>

@@ -261,6 +261,9 @@ namespace SentisWatcher.Storage
                 damage = Damage(g.Events), combatDamage = Damage(g.Activity.Where(e => e.Seed)), hits = g.Events.Where(e => e.Kind == "hit").Sum(e => e.Count),
                 kills = g.Events.Where(e => e.Kind == "kill").Sum(e => e.Count), destroyed = g.Events.Where(e => e.Kind == "destroyed").Sum(e => e.Count),
                 participants = g.Events.SelectMany(e => new[] { e.Attacker, e.Victim }).Where(id => id != 0).Distinct().Select(Name).OrderBy(n => n).ToList(),
+                // the players' identities (for the server's own notices; the site is not given them, PublicBattleProjection)
+                playerIds = g.Events.SelectMany(e => new[] { e.AttackerKind == "player" ? e.Attacker : 0, e.VictimKind == "player" ? e.Victim : 0 })
+                    .Where(id => id != 0).Distinct().Select(id => id.ToString()).ToList(),
                 factions = g.Events.SelectMany(e => new[] { e.AttackerFaction, e.VictimFaction }).Distinct().Select(Faction).ToList(),
                 weapons = g.Activity.Where(e => e.Seed).GroupBy(e => e.Weapon).OrderByDescending(w => Damage(w)).Take(3).Select(w => w.Key).ToList(),
                 x = g.Activity.Average(e => e.X), y = g.Activity.Average(e => e.Y), z = g.Activity.Average(e => e.Z),

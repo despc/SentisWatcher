@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Windows.Controls;
 using NLog;
+using Sandbox.ModAPI;
 using SentisWatcher.Config;
 using SentisWatcher.GUI;
 using SentisWatcher.Ledger;
@@ -39,6 +40,9 @@ namespace SentisWatcher
 
         /// <summary>The public stats for the server's site, when a port is set for them.</summary>
         public PublicServer Public { get; private set; }
+
+        /// <summary>The players told in the chat when their battle is on the site (null: no publication or no page).</summary>
+        public BattleNotices Notices { get; private set; }
         private ConfigGUI _control;
         private string _configPath;
 
@@ -120,7 +124,32 @@ namespace SentisWatcher
                     Public = null;
                 }
             }
+            if (Public != null && Public.BattlesPublished && !string.IsNullOrWhiteSpace(Config.BattleReportPage))
+            {
+                Notices = new BattleNotices(Public.Battles, Public.BattleReport, Public.BattlesDelayMinutes, TellBattleOver);
+                Notices.Start();
+            }
             Log.Info("SentisWatcher: recording into " + folder + ", keeping " + Config.RetentionDays + " days");
+        }
+
+        /// <summary>A player of a published battle told, if online: on the game thread, from the server in the chat.</summary>
+        private void TellBattleOver(long identity, string text)
+        {
+            MyAPIGateway.Utilities.InvokeOnGameThread(() =>
+            {
+                try
+                {
+                    var players = Sandbox.Game.World.MySession.Static?.Players;
+                    if (players == null || !players.IsPlayerOnline(identity)) return;
+                    var steam = players.TryGetSteamId(identity);
+                    if (steam == 0) return;
+                    Torch.CurrentSession?.Managers.GetManager<IChatManagerServer>()?.SendMessageAsOther("Sentis", text, VRageMath.Color.Gold, steam);
+                }
+                catch (Exception e)
+                {
+                    Log.Error(e, "SentisWatcher: telling a player of a battle failed");
+                }
+            });
         }
 
         private void Stop()
@@ -131,6 +160,8 @@ namespace SentisWatcher
             PerfSampler.Stop();
             Web?.Dispose();
             Web = null;
+            Notices?.Dispose();
+            Notices = null;
             Public?.Dispose();
             Public = null;
             try

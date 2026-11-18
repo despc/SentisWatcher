@@ -33,6 +33,18 @@ namespace SentisWatcher.Web
 
         public int Port { get; }
 
+        /// <summary>The battle reports are served (switched on, the key read): the site has them, a link to one works.</summary>
+        public bool BattlesPublished => _battles.Enabled && _battles.Ready;
+
+        /// <summary>Minutes after its end a battle is published.</summary>
+        public int BattlesDelayMinutes => _battles.DelayMinutes;
+
+        /// <summary>The battles the site is given (between players), for a range of time.</summary>
+        public object Battles(long from, long to) => _data.Battles(from, to, betweenPlayers: true);
+
+        /// <summary>One of them with its report (its outcome, its MVP).</summary>
+        public object BattleReport(long from, long to, string id) => _data.Battles(from, to, battle: id, betweenPlayers: true);
+
         private PublicServer(WatcherStore store, int port, string origin, bool everywhere, WatcherConfig config, string instance)
         {
             Port = port;

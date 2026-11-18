@@ -50,6 +50,9 @@ namespace SentisWatcher.Web
         public int DelayMinutes { get; }
         public bool Ready => _keyHash != null;
 
+        /// <summary>Publication switched on in the settings (<see cref="Ready"/> says whether it can be served).</summary>
+        public bool Enabled => _enabled;
+
         public sealed class Reply
         {
             public int Status { get; }
@@ -183,7 +186,7 @@ namespace SentisWatcher.Web
             value = fallback;
             return query[key] == null || (int.TryParse(query[key], NumberStyles.None, CultureInfo.InvariantCulture, out value) && value >= min && value <= max);
         }
-        private static bool Published(JToken summary, long before) => summary != null && summary["ongoing"]?.Type == JTokenType.Boolean &&
+        internal static bool Published(JToken summary, long before) => summary != null && summary["ongoing"]?.Type == JTokenType.Boolean &&
             !(bool)summary["ongoing"] && summary["endedAt"]?.Type == JTokenType.Integer && (long)summary["endedAt"] <= before &&
             summary["clippedStart"]?.Value<bool>() != true && summary["clippedEnd"]?.Value<bool>() != true;
 

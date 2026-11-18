@@ -21,7 +21,7 @@ namespace SentisWatcher.Web
                 return string.Concat(hash.ComputeHash(Encoding.UTF8.GetBytes("battle:" + internalId)).Take(16).Select(b => b.ToString("x2", CultureInfo.InvariantCulture)));
         }
 
-        private static string Text(JToken value, int max = 120)
+        internal static string Text(JToken value, int max = 120)
         {
             var text = value?.Type == JTokenType.String ? (string)value : "";
             text = LongId.Replace(text ?? "", "Неизвестный участник");

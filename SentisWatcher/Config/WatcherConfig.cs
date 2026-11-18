@@ -149,6 +149,19 @@ namespace SentisWatcher.Config
             set => SetValue(ref _publicBattlesDelayMinutes, value);
         }
 
+        private string _battleReportPage = "https://sentis-project.online/battles.html";
+
+        /// <summary>The site's page of a battle: the players are told of their battles and <c>!br</c> opens it.</summary>
+        [DisplayTab(Name = "Battle page on the site", GroupName = "Battle REST API", Tab = "Web view", Order = 15,
+            Description = "The site's battle page, e.g. https://sentis-project.online/battles.html (?hours=..&battle=.. is added). When a battle is " +
+                          "published, its players online are told in the chat to type !br, which opens the battle there in the Steam overlay. " +
+                          "Empty: no notices, !br answers that there is no page. Needs the battle publication on. Takes effect after restart.")]
+        public string BattleReportPage
+        {
+            get => _battleReportPage;
+            set => SetValue(ref _battleReportPage, value);
+        }
+
         private bool _loadSampling = true;
 
         /// <summary>Who loads the game thread: grids, characters, session components, plugins (LoadSampler).</summary>
