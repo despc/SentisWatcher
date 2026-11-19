@@ -152,6 +152,39 @@ namespace SentisWatcher.Tests
         }
 
         [Fact]
+        public void The_block_list_is_not_serialized_before_it_can_be_written()
+        {
+            var start = Clock.ToMs(new DateTime(2026, 11, 3, 12, 0, 0, DateTimeKind.Utc));
+            var calls = 0;
+            var json = "[1]";
+            var totals = new HydrogenTotals(false);
+            string Serialize() { calls++; return json; }
+            HydrogenSampler.Written Sample(HydrogenSampler.Written last, long elapsed, string name, string shape, out bool details) =>
+                HydrogenSampler.DecideLazy(last, start + elapsed, name, totals, false, shape, Serialize, out details);
+
+            var first = Sample(null, 0, "Ship", "shape", out var details);
+            Assert.True(details);
+            Assert.Equal(1, calls);
+            json = "[2]";
+            Assert.Null(Sample(first, 10000, "Ship", "shape", out details));
+            Assert.False(details);
+            var summary = Sample(first, 20000, "New name", "shape", out details);
+            Assert.NotNull(summary);
+            Assert.False(details);
+            Assert.Equal(first.BlocksT, summary.BlocksT);
+            Assert.Equal(first.Blocks, summary.Blocks);
+            Assert.Equal(1, calls);
+            var due = Sample(summary, HydrogenSampler.BlocksEveryMs, "New name", "shape", out details);
+            Assert.True(details);
+            Assert.Equal(json, due.Blocks);
+            Assert.Equal(2, calls);
+            var changedShape = Sample(due, HydrogenSampler.BlocksEveryMs + 1, "New name", "new shape", out details);
+            Assert.NotNull(changedShape);
+            Assert.True(details);
+            Assert.Equal(3, calls);
+        }
+
+        [Fact]
         public void A_sparse_history_holds_the_row_before_the_range_and_the_last_block_list()
         {
             var folder = Path.Combine(Path.GetTempPath(), "watcher-hydrogen-" + Guid.NewGuid().ToString("N"));

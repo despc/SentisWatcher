@@ -111,7 +111,7 @@ namespace SentisWatcher.Recording
                     var sink = block.Components.Get<MyResourceSinkComponent>();
                     var role = "consumer";
                     double stored = 0, capacity = 0, buffer = 0, produced = 0, consumed = 0;
-                    var name = InventorySweep.BlockName(block);
+                    string name = null;
                     if (block is MyThrust)
                     {
                         sink = thrust?.ResourceSink(block);
@@ -141,6 +141,7 @@ namespace SentisWatcher.Recording
                         if (input > 0 || sink != null && sink.AcceptedResources.Contains(gas)) consumed = input;
                         else if (role != "generator") continue;
                     }
+                    name = name ?? InventorySweep.BlockName(block);
                     totals.Add(role, stored, capacity, buffer, produced, consumed, input, output);
                     shape.Append(block.EntityId).Append('/').Append(role).Append('/').Append(name).Append(';');
                     rows.Add(new { id = block.EntityId.ToString(), name, type = block.BlockDefinition.DisplayNameText, role,
@@ -160,14 +161,14 @@ namespace SentisWatcher.Recording
                 };
                 LatestRows[grid.EntityId] = summary;
                 var gridName = grid.DisplayName ?? "";
-                var blocks = JsonConvert.SerializeObject(rows);
                 _written.TryGetValue(grid.EntityId, out var last);
-                var write = Decide(last, now, gridName, totals, frozen, shape.ToString(), blocks, out var withBlocks);
+                var write = DecideLazy(last, now, gridName, totals, frozen, shape.ToString(),
+                    () => JsonConvert.SerializeObject(rows), out var withBlocks);
                 if (write == null) continue;
                 _written[grid.EntityId] = write;
                 _store.Add(new Row(Table.Hydrogen, now, now, grid.EntityId, gridName, totals.Stored,
                     totals.Capacity, totals.Buffer, totals.Produced, totals.Consumed, totals.TankIn, totals.TankOut, frozen ? 1 : 0,
-                    withBlocks ? blocks : ""));
+                    withBlocks ? write.Blocks : ""));
             }
         }
 
@@ -177,13 +178,23 @@ namespace SentisWatcher.Recording
         /// freeze or a thaw, its blocks changed, the heartbeat (<see cref="FrozenHeartbeatMs"/> while frozen).
         /// </summary>
         public static Written Decide(Written last, long now, string name, HydrogenTotals totals, bool frozen, string shape, string blocks, out bool withBlocks)
+            => DecideLazy(last, now, name, totals, frozen, shape, () => blocks, out withBlocks);
+
+        public static Written DecideLazy(Written last, long now, string name, HydrogenTotals totals, bool frozen, string shape,
+            Func<string> serializeBlocks, out bool withBlocks)
         {
             var key = string.Join("|", name, frozen ? 1 : 0, Math.Round(totals.Stored), Math.Round(totals.Capacity), Math.Round(totals.Buffer),
                 Math.Round(totals.Produced, 2), Math.Round(totals.Consumed, 2), Math.Round(totals.TankIn, 2), Math.Round(totals.TankOut, 2));
             var fresh = last == null || Clock.Day(last.T) != Clock.Day(now) || now - last.T >= (frozen ? FrozenHeartbeatMs : HeartbeatMs);
             var shapeChanged = last == null || last.Shape != shape;
-            var blocksChanged = last == null || last.Blocks != blocks;
-            withBlocks = fresh || shapeChanged || last.Frozen != frozen || blocksChanged && now - last.BlocksT >= BlocksEveryMs;
+            withBlocks = fresh || shapeChanged || last.Frozen != frozen;
+            string blocks = null;
+            if (withBlocks) blocks = serializeBlocks();
+            else if (now - last.BlocksT >= BlocksEveryMs)
+            {
+                blocks = serializeBlocks();
+                withBlocks = last.Blocks != blocks;
+            }
             if (!fresh && !shapeChanged && !withBlocks && last.Totals == key) return null;
             return new Written
             {
