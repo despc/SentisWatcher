@@ -36,14 +36,16 @@ namespace SentisWatcher.Recording
 
         private sealed class PutIn
         {
-            public string File, Name;
-            public long Owner, At;
+            public string File, Name, Key, Source;
+            public long Owner, At, NextCheck;
             public List<long> Grids;
+            public Func<bool> Exists;
         }
 
         public sealed class TakeOut
         {
             public List<long> Grids = new List<long>();
+            public long[] Originals;
             public DateTime Utc;
             public string Name;
         }
@@ -98,7 +100,11 @@ namespace SentisWatcher.Recording
             _storing = null;
             if (putIn == null || __result == null) return;
             putIn.File = __result;
+            putIn.Key = Key(__result);
+            putIn.Source = "VirtualGarage";
+            putIn.Exists = () => InGarage(putIn.File);
             putIn.At = Clock.Now;
+            Remember(putIn.Key, putIn.Name, putIn.Grids.ToArray());
             lock (Lock) Verifying.Add(putIn);
             R.Event("garage_in", putIn.Owner, putIn.Grids.FirstOrDefault(), detail: $"\"{putIn.Name}\" ({putIn.Grids.Count} grids) into {Key(__result)}");
         });
@@ -111,16 +117,25 @@ namespace SentisWatcher.Recording
             lock (Lock)
             {
                 if (Verifying.Count == 0) return;
-                due = Verifying.Where(p => now - p.At >= VerifyMs).ToList();
+                due = Verifying.Where(p => now - p.At >= VerifyMs && now >= p.NextCheck).ToList();
                 foreach (var p in due) Verifying.Remove(p);
             }
             foreach (var putIn in due)
                 Recorder.Safe("garage put-in check", () =>
                 {
-                    var left = putIn.Grids.Where(id => MyEntities.TryGetEntityById(id, out MyCubeGrid g) && !g.MarkedForClose).ToList();
-                    // not written (the garage put the grids back): no file, no copy
-                    if (left.Count == 0 || !InGarage(putIn.File)) return;
-                    Dupe(recorder, putIn.Owner, left[0], $"\"{putIn.Name}\" put into the garage ({Key(putIn.File)}) is still in the world: grids {string.Join(", ", left)}");
+                    var left = putIn.Grids.Where(GridIsLive).ToList();
+                    if (left.Count == 0) return;
+                    if (!putIn.Exists())
+                    {
+                        // The garage may still be writing its file off-thread.
+                        if (putIn.File != null && now - putIn.At < 60000)
+                        {
+                            putIn.NextCheck = now + VerifyMs;
+                            lock (Lock) Verifying.Add(putIn);
+                        }
+                        return;
+                    }
+                    Dupe(recorder, putIn.Owner, left[0], $"{putIn.Source} [{putIn.Key}]: stored \"{putIn.Name}\" but original grids are still in the world: {string.Join(", ", left)}");
                 });
         }
 
@@ -131,14 +146,18 @@ namespace SentisWatcher.Recording
 
         private static void LoadPrefix(string file, long ownerIdentityId, ref Action<List<MyCubeGrid>> spawned)
         {
-            if (R == null || spawned == null || string.IsNullOrEmpty(file)) return;
+            var recorder = R;
+            if (recorder == null || spawned == null || string.IsNullOrEmpty(file)) return;
             var original = spawned;
             // the ids of what the file was made of, read aside while the garage reads it too
             var ids = Task.Run(() => IdsIn(file));
             spawned = grids =>
             {
-                Recorder.Safe("garage take-out", () => TakenOut(file, ownerIdentityId, grids, ids));
-                original(grids);
+                try { original(grids); }
+                finally
+                {
+                    if (R == recorder) Recorder.Safe("garage take-out", () => TakenOut(file, ownerIdentityId, grids, ids));
+                }
             };
         }
 
@@ -168,15 +187,8 @@ namespace SentisWatcher.Recording
             recorder.Event("garage_out", owner, grids[0].EntityId, grids[0].PositionComp.GetPosition(), count: grids.Count, detail: $"\"{name}\" ({grids.Count} grids) out of {key}");
             foreach (var grid in grids) GridSpawnWatch.Told(recorder, grid, "garage");
 
-            // the same entry's last take-out, still here
-            var takeOuts = TakeOuts();
-            TakeOut last;
-            lock (Lock) takeOuts.TryGetValue(key, out last);
-            var lastHere = last == null ? new List<long>() : Present(last.Grids, mine);
-            if (lastHere.Count > 0)
-                Dupe(recorder, owner, grids[0].EntityId, $"\"{name}\" taken out of the garage ({key}) again while the copy taken out {last.Utc:yyyy-MM-dd HH:mm} UTC is still in the world: grids {string.Join(", ", lastHere)}");
-            lock (Lock) takeOuts[key] = new TakeOut { Grids = mine.ToList(), Utc = DateTime.UtcNow, Name = name };
-            SaveTakeOuts();
+            var knownOriginals = ObserveRetrieval(recorder, "VirtualGarage", key, name, owner, grids[0].EntityId, mine);
+            if (knownOriginals) return;
 
             // the grid the file was made of, still here (its ids: read aside; checked on the game thread)
             ids.ContinueWith(t => Sandbox.MySandboxGame.Static?.Invoke(() => Recorder.Safe("garage original check", () =>
@@ -187,6 +199,79 @@ namespace SentisWatcher.Recording
                     Dupe(recorder, owner, grids[0].EntityId, $"\"{name}\" taken out of the garage ({key}) while what the garage file was made of is still in the world: " +
                                                              $"{here.Count} of its {t.Result.Count} grids and blocks, e.g. {string.Join(", ", here.Take(5))}");
             }), "SentisWatcher garage original check"));
+        }
+
+        internal static void ServicesStored(Recorder recorder, Guid id, long owner, string name, long[] originals, Func<bool> exists)
+        {
+            var key = "services:" + id.ToString("D");
+            Remember(key, name, originals);
+            lock (Lock) Verifying.Add(new PutIn
+            {
+                Owner = owner, Name = name, At = Clock.Now, Key = key, Source = "Services terminal",
+                Grids = originals.ToList(), Exists = exists
+            });
+            recorder.Event("services_storage_in", owner, originals.FirstOrDefault(), count: originals.Length, detail: key + " | " + name);
+        }
+
+        internal static void ServicesRetrieved(Recorder recorder, Guid id, long owner, List<MyCubeGrid> grids)
+        {
+            if (grids == null || grids.Count == 0) return;
+            var key = "services:" + id.ToString("D");
+            var first = grids[0];
+            recorder.Event("services_storage_out", owner, first.EntityId, count: grids.Count, detail: key + " | " + first.DisplayName);
+            ObserveRetrieval(recorder, "Services terminal", key, first.DisplayName, owner, first.EntityId,
+                new HashSet<long>(grids.Select(g => g.EntityId)));
+        }
+
+        private static void Remember(string key, string name, long[] originals)
+        {
+            lock (Lock)
+            {
+                var all = TakeOuts();
+                if (!all.TryGetValue(key, out var entry)) all[key] = entry = new TakeOut();
+                entry.Name = name;
+                entry.Originals = originals;
+                entry.Utc = DateTime.UtcNow;
+            }
+            SaveTakeOuts();
+        }
+
+        private static bool GridIsLive(long id) => MyEntities.TryGetEntityById(id, out MyCubeGrid grid) &&
+            !grid.Closed && !grid.MarkedForClose && !grid.IsPreview;
+
+        public static long[] PreviousCopies(IEnumerable<long> previous, ISet<long> current, Func<long, bool> live)
+        {
+            var ids = previous.ToArray();
+            // Observing the same paste twice is not a second copy.
+            return ids.Any(current.Contains) ? Array.Empty<long>() : ids.Where(live).Distinct().ToArray();
+        }
+
+        private static bool ObserveRetrieval(Recorder recorder, string source, string key, string name, long owner, long entity, HashSet<long> current)
+        {
+            long[] old, originals;
+            bool knownOriginals;
+            lock (Lock)
+            {
+                var all = TakeOuts();
+                if (!all.TryGetValue(key, out var entry)) all[key] = entry = new TakeOut();
+                old = PreviousCopies(entry.Grids, current, GridIsLive);
+                knownOriginals = entry.Originals != null;
+                originals = (entry.Originals ?? Array.Empty<long>()).Where(id => !current.Contains(id) && GridIsLive(id)).Distinct().ToArray();
+                entry.Grids = entry.Grids.Where(GridIsLive).Concat(current).Distinct().ToList();
+                entry.Utc = DateTime.UtcNow;
+                entry.Name = name;
+            }
+            if (old.Length > 0 || originals.Length > 0)
+            {
+                var reason = old.Length > 0
+                    ? "again while the copy taken out before is still in the world: " + string.Join(", ", old)
+                    : "while what the garage file was made of is still in the world: " + string.Join(", ", originals);
+                if (source != "VirtualGarage" && old.Length == 0)
+                    reason = "while the stored original grids are still in the world: " + string.Join(", ", originals);
+                Dupe(recorder, owner, entity, $"{source} [{key}]: \"{name}\" retrieved {reason}");
+            }
+            SaveTakeOuts();
+            return knownOriginals;
         }
 
         /// <summary>The ids of entities in the world now, but the ones given.</summary>
@@ -239,11 +324,13 @@ namespace SentisWatcher.Recording
         private static void SaveTakeOuts()
         {
             string json;
+            long order;
             lock (Lock)
             {
                 var old = DateTime.UtcNow.AddDays(-KeepDays);
                 foreach (var key in _takeOuts.Where(p => p.Value.Utc < old).Select(p => p.Key).ToList()) _takeOuts.Remove(key);
                 json = JsonConvert.SerializeObject(_takeOuts);
+                order = ++_writeOrder;
             }
             var file = TakeOutsFile;
             Task.Run(() =>
@@ -252,9 +339,11 @@ namespace SentisWatcher.Recording
                 {
                     lock (TakeOutsWrite)
                     {
+                        if (WrittenOrders.TryGetValue(file, out var written) && order <= written) return;
                         File.WriteAllText(file + ".tmp", json);
-                        if (File.Exists(file)) File.Delete(file);
-                        File.Move(file + ".tmp", file);
+                        if (File.Exists(file)) File.Replace(file + ".tmp", file, null);
+                        else File.Move(file + ".tmp", file);
+                        WrittenOrders[file] = order;
                     }
                 }
                 catch (Exception e)
@@ -265,6 +354,8 @@ namespace SentisWatcher.Recording
         }
 
         private static readonly object TakeOutsWrite = new object();
+        private static readonly Dictionary<string, long> WrittenOrders = new Dictionary<string, long>();
+        private static long _writeOrder;
 
         internal static void Reset()
         {

@@ -28,6 +28,7 @@ namespace SentisWatcher.Recording
 
         public static void Patch(PatchContext ctx)
         {
+            ServicesStorageWatch.Patch(ctx);
             PatchGuard.Run("SentisWatcher.Transfer", ctx, c =>
             {
                 var transfer = Method(typeof(MyInventory), "InventoryTransferItem_Implementation");
@@ -158,7 +159,15 @@ namespace SentisWatcher.Recording
 
         // ------------------------------------------------------------------ paste
 
-        private static void PastePrefix(MyCubeGrid.MyPasteGridParameters parameters) => Recorder.Safe("paste", () =>
+        private static void PastePrefix(ref MyCubeGrid.MyPasteGridParameters parameters)
+        {
+            if (Recorder.Current == null) return;
+            NotePaste(parameters);
+            try { ServicesStorageWatch.WatchPaste(ref parameters); }
+            catch (Exception e) { Recorder.Failed("watching services paste", e); }
+        }
+
+        private static void NotePaste(MyCubeGrid.MyPasteGridParameters parameters) => Recorder.Safe("paste", () =>
         {
             var steam = MyEventContext.Current.IsLocallyInvoked ? 0UL : MyEventContext.Current.Sender.Value;
             var actor = Identities.OfSteam(steam);
