@@ -36,6 +36,8 @@ namespace SentisWatcher.Recording
             public Recorder Recorder;
             public Guid Id;
             public long Owner;
+            /// <summary>The ids in the record's file, read aside while the game reads it too.</summary>
+            public System.Threading.Tasks.Task<HashSet<long>> FileIds;
         }
 
         internal static void Patch(PatchContext ctx)
@@ -86,10 +88,14 @@ namespace SentisWatcher.Recording
             _storing = null;
             var recorder = Recorder.Current;
             if (recorder == null) return;
+            // every frame: nothing is made unless a store request is next
+            object next;
+            try { next = _peek(__instance); }
+            catch (Exception e) { Recorder.Failed("services deposit start", e); return; }
+            if (next == null || next.GetType() != _deposit) return;
             Recorder.Safe("services deposit start", () =>
             {
-                var next = _peek(__instance);
-                if (next == null || next.GetType() != _deposit || !(_grid.GetValue(next) is MyCubeGrid root)) return;
+                if (!(_grid.GetValue(next) is MyCubeGrid root)) return;
                 var data = _data.GetValue(next);
                 if (data == null) return;
                 // StoreGrid copies the physical group. The logical group used for removal need not match it.
@@ -124,8 +130,10 @@ namespace SentisWatcher.Recording
             if (recorder == null || data == null) return;
             Recorder.Safe("services retrieval start", () =>
             {
-                if (TryEntry((string)_blueprint.GetValue(data), out var id))
-                    _loading = new Retrieval { Recorder = recorder, Id = id, Owner = (long)_newOwner.GetValue(data) };
+                var path = (string)_blueprint.GetValue(data);
+                if (TryEntry(path, out var id))
+                    _loading = new Retrieval { Recorder = recorder, Id = id, Owner = (long)_newOwner.GetValue(data),
+                        FileIds = System.Threading.Tasks.Task.Run(() => GarageWatch.IdsIn(path)) };
             });
         }
 
@@ -156,7 +164,7 @@ namespace SentisWatcher.Recording
                 {
                     _loading = prior;
                     if (success && Recorder.Current == load.Recorder)
-                        Recorder.Safe("services retrieval", () => GarageWatch.ServicesRetrieved(load.Recorder, load.Id, load.Owner, grids));
+                        Recorder.Safe("services retrieval", () => GarageWatch.ServicesRetrieved(load.Recorder, load.Id, load.Owner, grids, load.FileIds));
                 }
             };
         }

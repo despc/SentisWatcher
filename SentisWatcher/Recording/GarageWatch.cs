@@ -21,14 +21,20 @@ namespace SentisWatcher.Recording
     /// - Taken out (<c>VirtualGarageLoad.Load</c>'s grids in the world) while the grid the file was made of is still in the
     ///   world: the file keeps the entity ids the grids and blocks had (the garage gives the copy new ones).
     /// - Taken out of the same garage entry again while the copy of its last take-out is still in the world (a file put
-    ///   back by the garage after a crash comes with its copy gone with the world's rollback). The take-outs are kept in
-    ///   <c>garage-takeouts.json</c> by the day files, <see cref="KeepDays"/> days.
+    ///   back by the garage after a crash comes with its copy gone with the world's rollback).
+    /// - Taken out of an entry while a copy of the same ship taken out of another entry is still in the world: the
+    ///   entries are tied by what the file was made of (the ids in it against what each entry was put in with), so a
+    ///   file moved or copied to another garage is still the same ship. A sale on the trade console ties the seller's
+    ///   entry to the buyer's at once (<see cref="Relink"/>, <see cref="MarketWatch"/>).
+    /// The entries are kept in <c>garage-takeouts.json</c> by the day files: <see cref="KeepDays"/> days after their last
+    /// operation, <see cref="KeepStoredDays"/> while what was put in has not been taken out.
     /// Events <c>garage_in</c> and <c>garage_out</c> for each. Patched as the session loads, if VirtualGarage is here.
     /// </summary>
     public static class GarageWatch
     {
         public const long VerifyMs = 3000;
         public const double KeepDays = 30;
+        public const double KeepStoredDays = 365;
 
         private static readonly Logger Log = LogManager.GetLogger("SentisWatcher.Garage");
         private static Recorder R => Recorder.Current;
@@ -48,6 +54,10 @@ namespace SentisWatcher.Recording
             public long[] Originals;
             public DateTime Utc;
             public string Name;
+            /// <summary>Put in and not taken out since: kept for <see cref="KeepStoredDays"/>.</summary>
+            public bool Stored;
+            /// <summary>The entry this one came from (a sale on the trade console), or null.</summary>
+            public string From;
         }
 
         private static readonly object Lock = new object();
@@ -77,6 +87,7 @@ namespace SentisWatcher.Recording
                     c.GetPattern(store).Suffixes.Add(typeof(GarageWatch).GetMethod(nameof(StoreSuffix), BindingFlags.NonPublic | BindingFlags.Static));
                     c.GetPattern(load).Prefixes.Add(typeof(GarageWatch).GetMethod(nameof(LoadPrefix), BindingFlags.NonPublic | BindingFlags.Static));
                 });
+                PatchGuard.Run("SentisWatcher.Market", context, c => MarketWatch.Patch(assembly, c));
                 patches.Commit();
             }
             catch (Exception e)
@@ -188,17 +199,74 @@ namespace SentisWatcher.Recording
             foreach (var grid in grids) GridSpawnWatch.Told(recorder, grid, "garage");
 
             var knownOriginals = ObserveRetrieval(recorder, "VirtualGarage", key, name, owner, grids[0].EntityId, mine);
-            if (knownOriginals) return;
 
-            // the grid the file was made of, still here (its ids: read aside; checked on the game thread)
+            // what the file was made of (its ids: read aside; checked on the game thread): still in the world, and the
+            // same ship taken out of another entry
             ids.ContinueWith(t => Sandbox.MySandboxGame.Static?.Invoke(() => Recorder.Safe("garage original check", () =>
             {
                 if (Recorder.Current != recorder) return;
-                var here = Present(t.Result, mine);
-                if (here.Count > 0)
-                    Dupe(recorder, owner, grids[0].EntityId, $"\"{name}\" taken out of the garage ({key}) while what the garage file was made of is still in the world: " +
-                                                             $"{here.Count} of its {t.Result.Count} grids and blocks, e.g. {string.Join(", ", here.Take(5))}");
+                if (!knownOriginals)
+                {
+                    var here = Present(t.Result, mine);
+                    if (here.Count > 0)
+                        Dupe(recorder, owner, grids[0].EntityId, $"\"{name}\" taken out of the garage ({key}) while what the garage file was made of is still in the world: " +
+                                                                 $"{here.Count} of its {t.Result.Count} grids and blocks, e.g. {string.Join(", ", here.Take(5))}");
+                }
+                List<KeyValuePair<string, long[]>> kin;
+                lock (Lock) kin = Kin(TakeOuts(), key, t.Result, mine, GridIsLive);
+                foreach (var other in kin)
+                    Dupe(recorder, owner, grids[0].EntityId, $"VirtualGarage [{key}]: \"{name}\" taken out while a copy of the same ship taken out of " +
+                                                             $"{other.Key} is still in the world: {string.Join(", ", other.Value)}");
             }), "SentisWatcher garage original check"));
+        }
+
+        /// <summary>
+        /// The other entries of the same ship (what they were put in with is in this file) with copies still in the world,
+        /// and those copies; the entries tied to this one by a sale are not counted (their copies are this entry's).
+        /// </summary>
+        public static List<KeyValuePair<string, long[]>> Kin(IDictionary<string, TakeOut> all, string key, ICollection<long> fileIds,
+            ICollection<long> current, Func<long, bool> live)
+        {
+            var found = new List<KeyValuePair<string, long[]>>();
+            if (fileIds == null || fileIds.Count == 0) return found;
+            all.TryGetValue(key, out var mine);
+            foreach (var pair in all)
+            {
+                if (pair.Key == key || pair.Value?.Originals == null) continue;
+                if (pair.Value.From == key || mine?.From == pair.Key) continue;
+                if (!pair.Value.Originals.Any(fileIds.Contains)) continue;
+                var copies = (pair.Value.Grids ?? new List<long>()).Where(id => !current.Contains(id) && live(id)).Distinct().ToArray();
+                if (copies.Length > 0) found.Add(new KeyValuePair<string, long[]>(pair.Key, copies));
+            }
+            return found;
+        }
+
+        /// <summary>
+        /// The entry of a file that moved to another key (sold on the trade console: from the seller's garage to the
+        /// buyer's) takes over what the old one knows: what it was put in with, its copies.
+        /// </summary>
+        internal static void Relink(string fromKey, string toKey)
+        {
+            if (fromKey == null || toKey == null || fromKey == toKey) return;
+            lock (Lock)
+            {
+                var all = TakeOuts();
+                if (!all.TryGetValue(fromKey, out var from)) return;
+                if (!all.TryGetValue(toKey, out var to)) all[toKey] = to = new TakeOut();
+                to.Originals = to.Originals ?? from.Originals;
+                to.Grids = (to.Grids ?? new List<long>()).Concat(from.Grids ?? new List<long>()).Distinct().ToList();
+                to.Stored = from.Stored;
+                to.Name = from.Name;
+                to.From = fromKey;
+                to.Utc = DateTime.UtcNow;
+            }
+            SaveTakeOuts();
+        }
+
+        /// <summary>What a test asks of an entry: what it was put in with, its copies, where it came from.</summary>
+        public static TakeOut EntryOf(string key)
+        {
+            lock (Lock) return TakeOuts().TryGetValue(key, out var entry) ? entry : null;
         }
 
         internal static void ServicesStored(Recorder recorder, Guid id, long owner, string name, long[] originals, Func<bool> exists)
@@ -213,14 +281,25 @@ namespace SentisWatcher.Recording
             recorder.Event("services_storage_in", owner, originals.FirstOrDefault(), count: originals.Length, detail: key + " | " + name);
         }
 
-        internal static void ServicesRetrieved(Recorder recorder, Guid id, long owner, List<MyCubeGrid> grids)
+        internal static void ServicesRetrieved(Recorder recorder, Guid id, long owner, List<MyCubeGrid> grids, Task<HashSet<long>> fileIds)
         {
             if (grids == null || grids.Count == 0) return;
             var key = "services:" + id.ToString("D");
             var first = grids[0];
-            recorder.Event("services_storage_out", owner, first.EntityId, count: grids.Count, detail: key + " | " + first.DisplayName);
-            ObserveRetrieval(recorder, "Services terminal", key, first.DisplayName, owner, first.EntityId,
-                new HashSet<long>(grids.Select(g => g.EntityId)));
+            var name = first.DisplayName;
+            var mine = new HashSet<long>(grids.Select(g => g.EntityId));
+            recorder.Event("services_storage_out", owner, first.EntityId, count: grids.Count, detail: key + " | " + name);
+            var known = ObserveRetrieval(recorder, "Services terminal", key, name, owner, first.EntityId, mine);
+            if (known || fileIds == null) return;
+            // stored before it was followed (or while the recorder was off): what the record's file was made of
+            fileIds.ContinueWith(t => Sandbox.MySandboxGame.Static?.Invoke(() => Recorder.Safe("services original check", () =>
+            {
+                if (Recorder.Current != recorder) return;
+                var here = Present(t.Result, mine);
+                if (here.Count > 0)
+                    Dupe(recorder, owner, first.EntityId, $"Services terminal [{key}]: \"{name}\" retrieved while what the stored record was made of is still in the world: " +
+                                                          $"{here.Count} of its {t.Result.Count} grids and blocks, e.g. {string.Join(", ", here.Take(5))}");
+            }), "SentisWatcher services original check"));
         }
 
         private static void Remember(string key, string name, long[] originals)
@@ -232,6 +311,7 @@ namespace SentisWatcher.Recording
                 entry.Name = name;
                 entry.Originals = originals;
                 entry.Utc = DateTime.UtcNow;
+                entry.Stored = true;
             }
             SaveTakeOuts();
         }
@@ -254,12 +334,13 @@ namespace SentisWatcher.Recording
             {
                 var all = TakeOuts();
                 if (!all.TryGetValue(key, out var entry)) all[key] = entry = new TakeOut();
-                old = PreviousCopies(entry.Grids, current, GridIsLive);
+                old = PreviousCopies(entry.Grids ?? new List<long>(), current, GridIsLive);
                 knownOriginals = entry.Originals != null;
                 originals = (entry.Originals ?? Array.Empty<long>()).Where(id => !current.Contains(id) && GridIsLive(id)).Distinct().ToArray();
-                entry.Grids = entry.Grids.Where(GridIsLive).Concat(current).Distinct().ToList();
+                entry.Grids = (entry.Grids ?? new List<long>()).Where(GridIsLive).Concat(current).Distinct().ToList();
                 entry.Utc = DateTime.UtcNow;
                 entry.Name = name;
+                entry.Stored = false;
             }
             if (old.Length > 0 || originals.Length > 0)
             {
@@ -321,15 +402,20 @@ namespace SentisWatcher.Recording
             }
         }
 
+        /// <summary>Whether an entry is out of date: <see cref="KeepDays"/> after its last operation, <see cref="KeepStoredDays"/> while stored.</summary>
+        public static bool Expired(TakeOut entry, DateTime utcNow) =>
+            entry == null || entry.Utc < utcNow.AddDays(-(entry.Stored ? KeepStoredDays : KeepDays));
+
         private static void SaveTakeOuts()
         {
-            string json;
+            Dictionary<string, TakeOut> snapshot;
             long order;
             lock (Lock)
             {
-                var old = DateTime.UtcNow.AddDays(-KeepDays);
-                foreach (var key in _takeOuts.Where(p => p.Value.Utc < old).Select(p => p.Key).ToList()) _takeOuts.Remove(key);
-                json = JsonConvert.SerializeObject(_takeOuts);
+                var now = DateTime.UtcNow;
+                foreach (var key in TakeOuts().Where(p => Expired(p.Value, now)).Select(p => p.Key).ToList()) _takeOuts.Remove(key);
+                // written aside: a year of entries is not serialized on the game thread (an entry's lists are replaced, never changed)
+                snapshot = new Dictionary<string, TakeOut>(_takeOuts);
                 order = ++_writeOrder;
             }
             var file = TakeOutsFile;
@@ -337,6 +423,7 @@ namespace SentisWatcher.Recording
             {
                 try
                 {
+                    var json = JsonConvert.SerializeObject(snapshot);
                     lock (TakeOutsWrite)
                     {
                         if (WrittenOrders.TryGetValue(file, out var written) && order <= written) return;
